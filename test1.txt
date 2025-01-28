@@ -1,3 +1,81 @@
+@Repository
+public class ReconReportRepositoryImpl implements ReconReportRepositoryCustom {
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    @Override
+    public List<Tuple> fetchReconReportData(String reportingDate, List<String> groupByFields, Map<String, Object> filters) {
+        CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+        CriteriaQuery<Tuple> query = cb.createTupleQuery();
+        Root<ReconReport> irr = query.from(ReconReport.class);
+
+        // **JOIN with ilst_report (Replacing stEntity with actual table)**
+        Join<ReconReport, Report> reportJoin = irr.join("ilst_report", JoinType.LEFT);
+        Predicate reportJoinCondition = cb.and(
+            cb.equal(irr.get("reconReconEntity"), reportJoin.get("stReconEntity")),
+            cb.equal(irr.get("recon_pid"), reportJoin.get("st_pid"))
+        );
+
+        // **JOIN with ilst_adjustments**
+        Join<ReconReport, Adjustments> adjustmentsJoin = irr.join("ilst_adjustments", JoinType.LEFT);
+        Predicate adjustmentsJoinCondition = cb.and(
+            cb.equal(adjustmentsJoin.get("stReconEntity"), irr.get("reconReconEntity")),
+            cb.equal(irr.get("recon_pid"), adjustmentsJoin.get("st_pid")),
+            cb.equal(adjustmentsJoin.get("stCollateralClass"), irr.get("recon_collateralClass")),
+            cb.equal(adjustmentsJoin.get("adj_id"), 1)
+        );
+
+        // **Selections (Fields in SQL)**
+        List<Selection<?>> selections = new ArrayList<>();
+        selections.add(irr.get("reconReconEntity"));
+        selections.add(irr.get("recon_pid"));
+        selections.add(irr.get("recon_collateralClass"));
+        selections.add(irr.get("derived_errorCode"));
+        selections.add(irr.get("derived_dataSource"));
+        selections.add(cb.sum(irr.get("recon_amountUSD")).alias("reconAmountUSDSum"));
+
+        query.multiselect(selections.toArray(new Selection[0]));
+
+        // **Dynamic WHERE Clause**
+        List<Predicate> predicates = new ArrayList<>();
+
+        if (reportingDate != null) {
+            predicates.add(cb.equal(irr.get("reporting_date"), reportingDate));
+        }
+        predicates.add(cb.equal(irr.get("recon_version"), "1"));
+
+        predicates.add(cb.or(
+                irr.get("derived_errorCode").in(Arrays.asList(0, 1, 2, 3, 4, 5, 6, 7, 8)),
+                cb.isNull(irr.get("derived_errorCode"))
+        ));
+
+        predicates.add(irr.get("derived_dataSource").in(Arrays.asList("axiom fr2052a", "axiom manualAdjustments", "TBLS")));
+
+        // Additional dynamic filters
+        filters.forEach((key, value) -> predicates.add(cb.equal(irr.get(key), value)));
+
+        query.where(cb.and(
+            reportJoinCondition,
+            adjustmentsJoinCondition,
+            cb.and(predicates.toArray(new Predicate[0]))
+        ));
+
+        // **Dynamic GROUP BY Clause**
+        List<Expression<?>> groupByExpressions = new ArrayList<>();
+        for (String field : groupByFields) {
+            groupByExpressions.add(irr.get(field));
+        }
+        query.groupBy(groupByExpressions);
+
+        TypedQuery<Tuple> typedQuery = entityManager.createQuery(query);
+        return typedQuery.getResultList();
+    }
+}
+
+
+
+
 public class ReconReportDTO {
     private String reconReconEntity;
     private Long reconPid;
