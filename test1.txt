@@ -1,0 +1,158 @@
+public class ReconReportDTO {
+    private String reconReconEntity;
+    private Long reconPid;
+    private String reconCollateralClass;
+    private Integer derivedErrorCode;
+    private String derivedDataSource;
+    private String derivedStagingReportDate;
+    private String derivedStagingDataFeedName;
+    private String derivedStagingVersion;
+    private String derivedStagingId;
+    private Double reconAmountUSD;
+
+    public ReconReportDTO(String reconReconEntity, Long reconPid, String reconCollateralClass,
+                          Integer derivedErrorCode, String derivedDataSource, 
+                          String derivedStagingReportDate, String derivedStagingDataFeedName,
+                          String derivedStagingVersion, String derivedStagingId, Double reconAmountUSD) {
+        this.reconReconEntity = reconReconEntity;
+        this.reconPid = reconPid;
+        this.reconCollateralClass = reconCollateralClass;
+        this.derivedErrorCode = derivedErrorCode;
+        this.derivedDataSource = derivedDataSource;
+        this.derivedStagingReportDate = derivedStagingReportDate;
+        this.derivedStagingDataFeedName = derivedStagingDataFeedName;
+        this.derivedStagingVersion = derivedStagingVersion;
+        this.derivedStagingId = derivedStagingId;
+        this.reconAmountUSD = reconAmountUSD;
+    }
+
+    // Getters & Setters
+}
+
+
+
+import org.springframework.stereotype.Repository;
+import javax.persistence.EntityManager;
+import javax.persistence.PersistenceContext;
+import javax.persistence.criteria.*;
+import javax.persistence.Tuple;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@Repository
+public class ReconReportRepository {
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    public List<ReconReportDTO> fetchReconReport(Map<String, Object> filterParams, List<String> groupByFields) {
+        CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+        CriteriaQuery<Tuple> query = cb.createTupleQuery();
+
+        // Define Root Entities
+        Root<ReconReport> irr = query.from(ReconReport.class);
+        Root<Report> ir = query.from(Report.class);
+        Root<Adjustments> ia = query.from(Adjustments.class);
+
+        // Define Joins
+        Join<ReconReport, Report> reportJoin = irr.join("stEntity", JoinType.LEFT);
+        reportJoin.on(
+            cb.equal(irr.get("reconReconEntity"), ir.get("stReconEntity")),
+            cb.equal(irr.get("reconPid"), ir.get("stPid"))
+        );
+
+        Join<ReconReport, Adjustments> adjustmentsJoin = irr.join("adjustments", JoinType.LEFT);
+        adjustmentsJoin.on(
+            cb.equal(ia.get("stReconEntity"), irr.get("reconReconEntity")),
+            cb.equal(ia.get("reconPid"), irr.get("reconPid")),
+            cb.equal(ia.get("stCollateralClass"), irr.get("reconCollateralClass")),
+            cb.equal(ia.get("adjId"), 1) // adj_id = 1
+        );
+
+        // Define Selection
+        List<Selection<?>> selections = new ArrayList<>();
+        selections.add(irr.get("reconReconEntity").alias("reconReconEntity"));
+        selections.add(irr.get("reconPid").alias("reconPid"));
+        selections.add(irr.get("reconCollateralClass").alias("reconCollateralClass"));
+        selections.add(irr.get("derivedErrorCode").alias("derivedErrorCode"));
+        selections.add(irr.get("derivedDataSource").alias("derivedDataSource"));
+        selections.add(irr.get("derivedStagingReportDate").alias("derivedStagingReportDate"));
+        selections.add(irr.get("derivedStagingDataFeedName").alias("derivedStagingDataFeedName"));
+        selections.add(irr.get("derivedStagingVersion").alias("derivedStagingVersion"));
+        selections.add(irr.get("derivedStagingId").alias("derivedStagingId"));
+
+        // SUM Field
+        Expression<Double> sumField = cb.sum(irr.get("reconAmountUSD"));
+        selections.add(sumField.alias("reconAmountUSD"));
+
+        query.multiselect(selections);
+
+        // Construct WHERE Clause Using Predicates
+        List<Predicate> predicates = new ArrayList<>();
+
+        if (filterParams.containsKey("reportingDate")) {
+            predicates.add(cb.equal(irr.get("reportingDate"), filterParams.get("reportingDate")));
+        }
+        if (filterParams.containsKey("reconVersion")) {
+            predicates.add(cb.equal(irr.get("reconVersion"), filterParams.get("reconVersion")));
+        }
+        if (filterParams.containsKey("derivedErrorCode")) {
+            predicates.add(cb.or(
+                cb.isNull(irr.get("derivedErrorCode")),
+                irr.get("derivedErrorCode").in(filterParams.get("derivedErrorCode"))
+            ));
+        }
+        if (filterParams.containsKey("derivedDataSource")) {
+            predicates.add(irr.get("derivedDataSource").in(filterParams.get("derivedDataSource")));
+        }
+
+        query.where(cb.and(predicates.toArray(new Predicate[0])));
+
+        // Apply GROUP BY Dynamically
+        List<Expression<?>> groupByExpressions = new ArrayList<>();
+        for (String field : groupByFields) {
+            groupByExpressions.add(irr.get(field));
+        }
+        query.groupBy(groupByExpressions);
+
+        // Execute Query and Convert Tuple to DTO
+        List<Tuple> resultTuples = entityManager.createQuery(query).getResultList();
+
+        return resultTuples.stream()
+                .map(tuple -> new ReconReportDTO(
+                        tuple.get("reconReconEntity", String.class),
+                        tuple.get("reconPid", Long.class),
+                        tuple.get("reconCollateralClass", String.class),
+                        tuple.get("derivedErrorCode", Integer.class),
+                        tuple.get("derivedDataSource", String.class),
+                        tuple.get("derivedStagingReportDate", String.class),
+                        tuple.get("derivedStagingDataFeedName", String.class),
+                        tuple.get("derivedStagingVersion", String.class),
+                        tuple.get("derivedStagingId", String.class),
+                        tuple.get("reconAmountUSD", Double.class)
+                ))
+                .collect(Collectors.toList());
+    }
+}
+
+
+
+@Autowired
+private ReconReportRepository reconReportRepository;
+
+public void fetchReportData() {
+    Map<String, Object> filters = Map.of(
+        "reportingDate", "2024-07-31",
+        "reconVersion", "1",
+        "derivedErrorCode", List.of(0, 1, 2, 3, 4, 5, 6, 7, 8),
+        "derivedDataSource", List.of("axiom fr2052a", "axiom manualAdjustments", "TBLS")
+    );
+
+    List<String> groupBy = List.of("reconReconEntity", "reconPid", "reconCollateralClass", "derivedErrorCode", "derivedDataSource");
+
+    List<ReconReportDTO> results = reconReportRepository.fetchReconReport(filters, groupBy);
+
+    results.forEach(dto -> System.out.println(dto));
+}
