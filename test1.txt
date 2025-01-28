@@ -31,6 +31,13 @@ public class ReconReportDTO {
 
 
 
+Join<ReconReport, Report> reportJoin = irr.join(Report.class, JoinType.LEFT);
+reportJoin.on(
+    cb.equal(irr.get("reconReconEntity"), reportJoin.get("stReconEntity")),
+    cb.equal(irr.get("reconPid"), reportJoin.get("stPid"))
+);
+
+
 import org.springframework.stereotype.Repository;
 import javax.persistence.EntityManager;
 import javax.persistence.PersistenceContext;
