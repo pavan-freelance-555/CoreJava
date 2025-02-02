@@ -1,0 +1,65 @@
+@Repository
+public class ReconRepositoryCustomImpl implements ReconRepositoryCustom {
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    @Override
+    public List<Object[]> getReconData(String reconEntity, String pid, String collateralClass, String adjVersion, String scenario, LocalDate reportDate) {
+        StringBuilder queryBuilder = new StringBuilder();
+        
+        queryBuilder.append("SELECT r.recon_entity, rr.recon_pid, a.collateral_class, ");
+        queryBuilder.append("SUM(CASE WHEN r.derived_error_code IS NULL THEN r.recon_amount_usd ELSE 0 END) AS totalAmountWithNoError, ");
+        queryBuilder.append("SUM(CASE WHEN rr.derived_error_code = 4 THEN rr.recon_amount_usd ELSE 0 END) AS totalAmountErrorCode4, ");
+        queryBuilder.append("SUM(CASE WHEN a.derived_error_code = 3 THEN a.recon_amount_usd ELSE 0 END) AS totalAmountErrorCode3, ");
+        queryBuilder.append("SUM(a.recon_amount_usd) AS metricsAdjustmentAmount ");
+        queryBuilder.append("FROM ilst_report r ");
+        queryBuilder.append("LEFT JOIN ilst_recon_report rr ON r.recon_entity = rr.recon_entity AND r.pid = rr.recon_pid ");
+        queryBuilder.append("LEFT JOIN ilst_adjustments a ON r.recon_entity = a.recon_entity AND r.pid = a.pid ");
+        queryBuilder.append("WHERE 1=1 ");
+
+        if (reconEntity != null) {
+            queryBuilder.append("AND r.recon_entity = :reconEntity ");
+        }
+        if (pid != null) {
+            queryBuilder.append("AND rr.recon_pid = :pid ");
+        }
+        if (collateralClass != null) {
+            queryBuilder.append("AND a.collateral_class = :collateralClass ");
+        }
+        if (adjVersion != null) {
+            queryBuilder.append("AND a.adj_version = :adjVersion ");
+        }
+        if (scenario != null) {
+            queryBuilder.append("AND a.scenario = :scenario ");
+        }
+        if (reportDate != null) {
+            queryBuilder.append("AND r.report_date = :reportDate ");
+        }
+
+        queryBuilder.append("GROUP BY r.recon_entity, rr.recon_pid, a.collateral_class");
+
+        Query query = entityManager.createNativeQuery(queryBuilder.toString());
+
+        if (reconEntity != null) {
+            query.setParameter("reconEntity", reconEntity);
+        }
+        if (pid != null) {
+            query.setParameter("pid", pid);
+        }
+        if (collateralClass != null) {
+            query.setParameter("collateralClass", collateralClass);
+        }
+        if (adjVersion != null) {
+            query.setParameter("adjVersion", adjVersion);
+        }
+        if (scenario != null) {
+            query.setParameter("scenario", scenario);
+        }
+        if (reportDate != null) {
+            query.setParameter("reportDate", reportDate);
+        }
+
+        return query.getResultList();
+    }
+}
