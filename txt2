@@ -1,0 +1,49 @@
+WITH FilteredData AS (
+    SELECT 
+        irr.recon_reconEntity,
+        irr.recon_pid,
+        irr.recon_collateralClass,
+        SUM(CASE WHEN irr.derived_errorCode IS NULL 
+                 AND irr.derived_dataSource = 'TBLS' THEN COALESCE(irr.recon_amountUSD, 0) ELSE 0 END) AS tbls,
+        SUM(CASE WHEN irr.derived_errorCode IN (3,4) 
+                 AND irr.derived_dataSource = 'TBLS' THEN COALESCE(irr.recon_amountUSD, 0) ELSE 0 END) AS tblsPositionDiscards,
+        SUM(CASE WHEN irr.derived_errorCode IN (0,1,2,5,6,7,8) 
+                 AND irr.derived_dataSource = 'TBLS' THEN COALESCE(irr.recon_amountUSD, 0) ELSE 0 END) AS tblsPreExceptions,
+        SUM(CASE WHEN irr.derived_errorCode IS NULL 
+                 AND irr.derived_dataSource = 'LAMP' 
+                 AND ir.run_version = 1 THEN COALESCE(irr.recon_amountUSD, 0) ELSE 0 END) AS lamp,
+        SUM(CASE WHEN irr.derived_errorCode IN (0,1,2,5,6,7,8) 
+                 AND irr.derived_dataSource = 'LAMP' 
+                 AND ir.run_version = 1 THEN COALESCE(irr.recon_amountUSD, 0) ELSE 0 END) AS lampDiscards,
+        SUM(CASE WHEN irr.derived_errorCode IN (3,4) 
+                 AND irr.derived_dataSource = 'LAMP' 
+                 AND ir.run_version = 1 THEN COALESCE(irr.recon_amountUSD, 0) ELSE 0 END) AS lampPreExceptions
+    FROM ilst_recon_report irr
+    JOIN ilst_report ir 
+        ON irr.recon_reconEntity = ir.st_reconEntity 
+        AND irr.recon_pid = ir.st_pid 
+        AND irr.recon_collateralClass = ir.st_collateralClass
+    WHERE irr.reporting_date = '2025-01-21'
+      AND irr.recon_version = 1
+      AND irr.derived_dataSource IN ('axiom_fr2052a', 'axiom_manualAdjustments', 'TBLS')
+      AND irr.recon_reconEntity = 'TD Bank - Consolidated US Branch Network'
+    GROUP BY irr.recon_reconEntity, irr.recon_pid, irr.recon_collateralClass
+)
+SELECT 
+    FD.recon_reconEntity,
+    FD.recon_pid,
+    FD.recon_collateralClass,
+    FD.tbls,
+    FD.tblsPositionDiscards,
+    FD.tblsPreExceptions,
+    FD.lamp,
+    FD.lampDiscards,
+    FD.lampPreExceptions,
+    SUM(CASE WHEN ia.derived_dataSource = 'LAMP' AND ia.adj_version = 1 THEN ia.recon_amountUSD ELSE 0 END) AS metricAdjustments
+FROM FilteredData FD
+JOIN ilst_adjustments ia 
+    ON ia.st_reconEntity = FD.recon_reconEntity 
+    AND ia.st_pid = FD.recon_pid
+    AND ia.st_collateralClass = FD.recon_collateralClass
+WHERE ia.adj_version = 1
+GROUP BY FD.recon_reconEntity, FD.recon_pid, FD.recon_collateralClass;
