@@ -1,0 +1,88 @@
+import org.springframework.stereotype.Service;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.TypedQuery;
+import jakarta.persistence.criteria.*;
+import java.util.List;
+import java.util.Collections;
+import jakarta.persistence.Tuple;
+
+@Service
+public class AdjustmentCriteriaService {
+
+    private final EntityManager entityManager;
+
+    public AdjustmentCriteriaService(EntityManager entityManager) {
+        this.entityManager = entityManager;
+    }
+
+    public List<Tuple> fetchAdjustments() {
+        CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+        CriteriaQuery<Tuple> cq = cb.createTupleQuery();
+        Root<IlstAdjustments> root = cq.from(IlstAdjustments.class);
+
+        // Subquery for getting the latest adjustment timestamp
+        Subquery<Timestamp> latestSubquery = cq.subquery(Timestamp.class);
+        Root<IlstAdjustments> latestRoot = latestSubquery.from(IlstAdjustments.class);
+        latestSubquery.select(cb.greatest(latestRoot.get("adjUpdatedTimestamp")));
+        latestSubquery.where(
+            cb.equal(latestRoot.get("reportingDate"), root.get("reportingDate")),
+            cb.equal(latestRoot.get("runVersion"), root.get("runVersion")),
+            cb.equal(latestRoot.get("adjVersion"), root.get("adjVersion")),
+            cb.equal(latestRoot.get("adjId"), root.get("adjId"))
+        );
+
+        // Select Fields
+        cq.multiselect(
+            root.get("assetGroup"),
+            root.get("liquidityGroup"),
+            root.get("businessType"),
+            root.get("operational"),
+            root.get("accountSize"),
+            root.get("liquidityProductType"),
+            root.get("liquidityFlowDate"),
+            root.get("reportingLiquidityGroup"),
+            root.get("reportingLiquidityProductType"),
+            root.get("collateralType"),
+            root.get("collateralProduct"),
+            root.get("clientOrProvision"),
+            root.get("insuredStatus"),
+            root.get("cashType"),
+            root.get("derivedDataSource"),
+            cb.nullLiteral(String.class), // Placeholder for NULL column
+            cb.nullLiteral(String.class), // Placeholder for NULL column
+            cb.sum(root.get("liquidityFlowAmountUSD"))
+        );
+
+        // WHERE conditions
+        cq.where(
+            cb.equal(root.get("runVersion"), 1),
+            cb.equal(root.get("derivedScenario"), ""),
+            root.get("inventoryEntity").in(Collections.singletonList("")),
+            cb.equal(root.get("adjVersion"), 1),
+            cb.equal(root.get("adjActive"), 1),
+            cb.equal(root.get("adjUpdatedTimestamp"), latestSubquery.getSelection()) // Ensuring latest timestamp
+        );
+
+        // GROUP BY clause
+        cq.groupBy(
+            root.get("assetGroup"),
+            root.get("liquidityGroup"),
+            root.get("businessType"),
+            root.get("operational"),
+            root.get("accountSize"),
+            root.get("liquidityProductType"),
+            root.get("liquidityFlowDate"),
+            root.get("reportingLiquidityGroup"),
+            root.get("reportingLiquidityProductType"),
+            root.get("collateralType"),
+            root.get("collateralProduct"),
+            root.get("clientOrProvision"),
+            root.get("insuredStatus"),
+            root.get("cashType"),
+            root.get("derivedDataSource")
+        );
+
+        TypedQuery<Tuple> query = entityManager.createQuery(cq);
+        return query.getResultList();
+    }
+}
