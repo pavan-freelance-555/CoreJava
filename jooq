@@ -1,0 +1,93 @@
+import org.jooq.DSLContext;
+import org.jooq.Record;
+import org.jooq.Result;
+import org.jooq.impl.DSL;
+import org.springframework.stereotype.Service;
+import java.util.List;
+
+@Service
+public class AdjustmentJooqService {
+
+    private final DSLContext dsl;
+
+    public AdjustmentJooqService(DSLContext dsl) {
+        this.dsl = dsl;
+    }
+
+    public List<Record> fetchAdjustments() {
+        // Define tables (assuming you have generated JOOQ classes)
+        ILST_ADJUSTMENTS iael0 = ILST_ADJUSTMENTS.ILST_ADJUSTMENTS;
+        
+        // Create CTE (Common Table Expression) for latest adjustments
+        Table<Record5<Timestamp, Integer, Integer, Integer, Integer>> latest = dsl
+            .select(
+                iael0.REPORTING_DATE,
+                iael0.RUN_VERSION,
+                iael0.ADJ_VERSION,
+                iael0.ADJ_ID,
+                DSL.max(iael0.ADJ_UPDATED_TIMESTAMP).as("latest_timestamp")
+            )
+            .from(iael0)
+            .groupBy(iael0.REPORTING_DATE, iael0.RUN_VERSION, iael0.ADJ_VERSION, iael0.ADJ_ID)
+            .asTable("latest");
+
+        // Main Query
+        Result<Record> result = dsl
+            .select(
+                iael0.ASSET_GROUP,
+                iael0.LIQUIDITY_GROUP,
+                iael0.BUSINESS_TYPE,
+                iael0.OPERATIONAL,
+                iael0.ACCOUNT_SIZE,
+                iael0.LIQUIDITY_PRODUCT_TYPE,
+                iael0.LIQUIDITY_FLOW_DATE,
+                iael0.REPORTING_LIQUIDITY_GROUP,
+                iael0.REPORTING_LIQUIDITY_PRODUCT_TYPE,
+                iael0.COLLATERAL_TYPE,
+                iael0.COLLATERAL_PRODUCT,
+                iael0.CLIENT_OR_PROVISION,
+                iael0.INSURED_STATUS,
+                iael0.CASH_TYPE,
+                iael0.DERIVED_DATA_SOURCE,
+                DSL.null_(),
+                DSL.null_(),
+                DSL.sum(iael0.LIQUIDITY_FLOW_AMOUNT_USD)
+            )
+            .from(iael0)
+            .join(latest)
+            .on(
+                latest.field(iael0.REPORTING_DATE).eq(iael0.REPORTING_DATE)
+                    .and(latest.field(iael0.RUN_VERSION).eq(iael0.RUN_VERSION))
+                    .and(latest.field(iael0.ADJ_VERSION).eq(iael0.ADJ_VERSION))
+                    .and(latest.field(iael0.ADJ_ID).eq(iael0.ADJ_ID))
+                    .and(latest.field("latest_timestamp", Timestamp.class).eq(iael0.ADJ_UPDATED_TIMESTAMP))
+            )
+            .where(
+                iael0.RUN_VERSION.eq(1)
+                    .and(iael0.DERIVED_SCENARIO.eq(""))
+                    .and(iael0.INVENTORY_ENTITY.in(Collections.singletonList("")))
+                    .and(iael0.ADJ_VERSION.eq(1))
+                    .and(iael0.ADJ_ACTIVE.eq(1))
+            )
+            .groupBy(
+                iael0.ASSET_GROUP,
+                iael0.LIQUIDITY_GROUP,
+                iael0.BUSINESS_TYPE,
+                iael0.OPERATIONAL,
+                iael0.ACCOUNT_SIZE,
+                iael0.LIQUIDITY_PRODUCT_TYPE,
+                iael0.LIQUIDITY_FLOW_DATE,
+                iael0.REPORTING_LIQUIDITY_GROUP,
+                iael0.REPORTING_LIQUIDITY_PRODUCT_TYPE,
+                iael0.COLLATERAL_TYPE,
+                iael0.COLLATERAL_PRODUCT,
+                iael0.CLIENT_OR_PROVISION,
+                iael0.INSURED_STATUS,
+                iael0.CASH_TYPE,
+                iael0.DERIVED_DATA_SOURCE
+            )
+            .fetch();
+
+        return result.intoList();
+    }
+}
