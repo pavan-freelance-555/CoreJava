@@ -1,0 +1,26 @@
+package com.example.sorting.model;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+public class ReconciliationOrder {
+    @JsonProperty("PID_Ordering")
+    private String pidOrdering;
+
+    @JsonProperty("Collateral_Class_Ordering")
+    private String collateralClassOrdering;
+
+    public ReconciliationOrder() {}
+
+    public ReconciliationOrder(String pidOrdering, String collateralClassOrdering) {
+        this.pidOrdering = pidOrdering;
+        this.collateralClassOrdering = collateralClassOrdering;
+    }
+
+    public String getPidOrdering() {
+        return pidOrdering;
+    }
+
+    public String getCollateralClassOrdering() {
+        return collateralClassOrdering;
+    }
+}
