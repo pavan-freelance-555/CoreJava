@@ -1,0 +1,20 @@
+public List<ReconciliationOrder> sortUnsortedJson(File sortedFile, File unsortedFile) throws IOException {
+    // Step 1: Parse sorted JSON into ordered map for PID_Ordering
+    List<ReconciliationOrder> sortedList = objectMapper.readValue(sortedFile, new TypeReference<List<ReconciliationOrder>>() {});
+    Map<String, Integer> orderMap = new LinkedHashMap<>();
+    
+    // Populate the orderMap with PID_Ordering
+    for (int i = 0; i < sortedList.size(); i++) {
+        orderMap.put(sortedList.get(i).getPidOrdering(), i);
+    }
+
+    // Step 2: Parse unsorted JSON
+    List<ReconciliationOrder> unsortedList = objectMapper.readValue(unsortedFile, new TypeReference<List<ReconciliationOrder>>() {});
+
+    // Step 3: Sort using sorted() and multiple comparators
+    return unsortedList.stream()
+        .sorted(Comparator
+            .comparingInt((ReconciliationOrder order) -> orderMap.getOrDefault(order.getPidOrdering(), Integer.MAX_VALUE))  // First sort by PID_Ordering
+            .thenComparingInt(order -> order.getCollateralClassOrdering()))  // Then sort by collateralClassOrdering
+        .collect(Collectors.toList());  // Collect the sorted result back into a list
+}
