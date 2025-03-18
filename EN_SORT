@@ -1,0 +1,32 @@
+public List<ReconciliationOrder> sortUnsortedJson(File sortedFile, File unsortedFile) throws IOException {
+    // Step 1: Parse sorted JSON into ordered map (single pass)
+    List<ReconciliationOrder> sortedList = objectMapper.readValue(sortedFile, new TypeReference<List<ReconciliationOrder>>() {});
+    Map<String, Integer> orderMap = new LinkedHashMap<>();
+    
+    for (int i = 0; i < sortedList.size(); i++) {
+        String combinedKey = sortedList.get(i).getPidOrdering() + "_" + sortedList.get(i).getCollateralClassOrdering();
+        orderMap.put(combinedKey, i);
+    }
+
+    // Debug: Print out the orderMap
+    System.out.println("Order Map: " + orderMap);
+
+    // Step 2: Parse unsorted JSON
+    List<ReconciliationOrder> unsortedList = objectMapper.readValue(unsortedFile, new TypeReference<List<ReconciliationOrder>>() {});
+    
+    // Debug: Print out the unsortedList
+    System.out.println("Unsorted List: " + unsortedList);
+
+    // Step 3: Sort using O(1) lookup in orderMap for combined PID_Ordering and collateralClassOrdering
+    unsortedList = new ArrayList<>(unsortedList); // Ensure it's a mutable list
+
+    unsortedList.sort(Comparator.comparingInt(order -> {
+        String combinedKey = order.getPidOrdering() + "_" + order.getCollateralClassOrdering();
+        // Debug: Print combined key and corresponding index
+        int index = orderMap.getOrDefault(combinedKey, Integer.MAX_VALUE);
+        System.out.println("Sorting by key: " + combinedKey + " -> " + index);
+        return index;
+    }));
+
+    return unsortedList;
+}
