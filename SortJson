@@ -1,0 +1,32 @@
+package com.example.sorting.service;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.example.sorting.model.ReconciliationOrder;
+import org.springframework.stereotype.Service;
+
+import java.io.File;
+import java.io.IOException;
+import java.util.*;
+
+@Service
+public class JsonSortingService {
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    public List<ReconciliationOrder> sortUnsortedJson(File sortedFile, File unsortedFile) throws IOException {
+        // Step 1: Parse sorted JSON into ordered map (single pass)
+        List<ReconciliationOrder> sortedList = objectMapper.readValue(sortedFile, new TypeReference<List<ReconciliationOrder>>() {});
+        Map<String, Integer> orderMap = new LinkedHashMap<>();
+        for (int i = 0; i < sortedList.size(); i++) {
+            orderMap.put(sortedList.get(i).getPidOrdering(), i);
+        }
+
+        // Step 2: Parse unsorted JSON
+        List<ReconciliationOrder> unsortedList = objectMapper.readValue(unsortedFile, new TypeReference<List<ReconciliationOrder>>() {});
+
+        // Step 3: Sort using O(1) lookup in orderMap
+        unsortedList.sort(Comparator.comparingInt(order -> orderMap.getOrDefault(order.getPidOrdering(), Integer.MAX_VALUE)));
+
+        return unsortedList;
+    }
+}
