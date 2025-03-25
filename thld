@@ -1,0 +1,176 @@
+[
+  {
+    "recon_reconEntity": "TD Bank - Consolidated US Branch Network (NY Branch)",
+    "recon_pid": "OW.18",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Bank - Consolidated US Branch Network (NY Branch)",
+    "recon_pid": "S.DC.12",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Bank - Consolidated US Branch Network (NY Branch)",
+    "recon_pid": "S.DC.20",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Bank - Consolidated US Branch Network (NY Branch)",
+    "recon_pid": "S.DC.21",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "LA.1",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "LA.2",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "LA.3",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "LA.5",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "LA.6",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "LA.7",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "LO.1",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "LO.3",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "LO.5",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "LS.1",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "LS.2",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "LS.3",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "LS.4",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "LS.5",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "LU.3",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "LU.6",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "OD.6",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "O.0.8",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "O.0.1",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "O.0.3",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "O.0.4",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "O.5.7",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "O.S.1",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "O.S.2",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  },
+  {
+    "recon_reconEntity": "TD Holdings USA Inc. - Others (TDH USA - Others)",
+    "recon_pid": "O.S.3",
+    "lmt_threshold": 10000000,
+    "lmt_thresholdPercent": "10%"
+  }
+]
