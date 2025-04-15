@@ -1,0 +1,178 @@
+@ExtendWith(MockitoExtension.class)
+class GranularDruidRepositoryTest {
+
+    @Mock private QueryConfigService queryConfigService;
+    @Mock private JdbcClient druidJdbcClient;
+    @Mock private IlstEntityLookupRepository ilstEntityLookupRepository;
+    @Mock private IlstConfigurationAuditRepository ilstConfigurationAuditRepository;
+    @Mock private ObjectMapper mapper;
+
+    @InjectMocks
+    private GranularDruidRepository granularDruidRepository;
+
+    @Test
+    void testGetReportData() throws Exception {
+        GranularFilters filters = new GranularFilters();
+        List<String> entities = Arrays.asList("Entity1");
+
+        GranularDruidRepository spyRepo = Mockito.spy(granularDruidRepository);
+
+        List<GranularDataRow> dummyData = Collections.singletonList(new GranularDataRow());
+        Mockito.doReturn(dummyData).when(spyRepo).dataForReports(filters, entities);
+
+        CompletableFuture<List<GranularDataRow>> result = spyRepo.getReportData(filters, entities);
+
+        assertTrue(result.isDone());
+        assertEquals(1, result.get().size());
+    }
+
+    @Test
+    void testGetAdjustmentsData() throws Exception {
+        GranularFilters filters = new GranularFilters();
+        List<String> entities = Arrays.asList("Entity1");
+
+        GranularDruidRepository spyRepo = Mockito.spy(granularDruidRepository);
+
+        List<GranularDataRow> dummyData = Collections.singletonList(new GranularDataRow());
+        Mockito.doReturn(dummyData).when(spyRepo).dataForAdjustments(filters, entities);
+
+        CompletableFuture<List<GranularDataRow>> result = spyRepo.getAdjustmentsData(filters, entities);
+
+        assertTrue(result.isDone());
+        assertEquals(1, result.get().size());
+    }
+
+    @Test
+    void testEntities() {
+        GranularFilters filters = new GranularFilters();
+        filters.setSt_inventoryEntity(Collections.singletonList("entity1"));
+
+        Mockito.when(ilstEntityLookupRepository.findResolvedViewEntityByInputEntity("entity1"))
+                .thenReturn(Arrays.asList("ResolvedEntity1"));
+
+        List<String> result = granularDruidRepository.entities(filters);
+
+        assertEquals(1, result.size());
+        assertEquals("ResolvedEntity1", result.get(0));
+    }
+
+    @Test
+    void testGranularQueries() throws Exception {
+        GranularFilters filters = new GranularFilters();
+        filters.setReportViewId("report-1");
+
+        List<GranularReportViewConfig> configList = new ArrayList<>();
+        GranularReportViewConfig config = new GranularReportViewConfig();
+        config.setSelectFieldsList(Arrays.asList("field1", "field2"));
+        config.setGroupByFieldsList(Arrays.asList("group1"));
+        configList.add(config);
+
+        String configJson = "[{\"selectFieldsList\":[\"field1\",\"field2\"],\"groupByFieldsList\":[\"group1\"]}]";
+
+        Mockito.when(ilstConfigurationAuditRepository.getConfig("report-1", filters.getReportViewId()))
+                .thenReturn(configJson);
+        Mockito.when(mapper.readerForListOf(GranularReportViewConfig.class).readValue(configJson))
+                .thenReturn(configList);
+
+        List<String> entities = Arrays.asList("entity1");
+
+        String query = granularDruidRepository.granularQueries(filters, "my_table", entities);
+        assertTrue(query.contains("UNION ALL"));
+        assertTrue(query.contains("SELECT"));
+        assertTrue(query.contains("FROM my_table"));
+    }
+
+@Test
+void testGetGranularReportViewConfigs() throws Exception {
+    GranularFilters filters = new GranularFilters();
+    filters.setReportViewId("view1");
+
+    String configJson = "[{\"selectFieldsList\":[\"field1\"],\"groupByFieldsList\":[\"group1\"]}]";
+    List<GranularReportViewConfig> configs = new ArrayList<>();
+    GranularReportViewConfig config = new GranularReportViewConfig();
+    config.setSelectFieldsList(Arrays.asList("field1"));
+    config.setGroupByFieldsList(Arrays.asList("group1"));
+    configs.add(config);
+
+    Mockito.when(ilstConfigurationAuditRepository.getConfig("view1", filters.getReportViewId()))
+            .thenReturn(configJson);
+    Mockito.when(mapper.readerForListOf(GranularReportViewConfig.class).readValue(configJson))
+            .thenReturn(configs);
+
+    List<GranularReportViewConfig> result = granularDruidRepository.getGranularReportViewConfigs(filters);
+
+    assertEquals(1, result.size());
+    assertEquals("field1", result.get(0).getSelectFieldsList().get(0));
+}
+@Test
+void testDataForReports_withAssetGroupAndProduct() {
+    GranularFilters filters = new GranularFilters();
+    filters.setAssetGroup("GroupA");
+    filters.setGranularProduct("ProductX");
+
+    GranularDataRow row = new GranularDataRow();
+    row.setAssetGroup("GroupA");
+    row.setGranularProduct("ProductX");
+
+    List<GranularDataRow> mockRows = Arrays.asList(row);
+
+    GranularDruidRepository spyRepo = Mockito.spy(granularDruidRepository);
+    Mockito.doReturn(mockRows).when(spyRepo).reportsQuery(Mockito.any(), Mockito.any());
+
+    List<GranularDataRow> result = spyRepo.dataForReports(filters, Arrays.asList("Entity1"));
+
+    assertEquals(1, result.size());
+    assertEquals("ACTUAL", result.get(0).getDerived_dataSource());
+}
+
+@Test
+void testDataForReports_withOnlyAssetGroup() {
+    GranularFilters filters = new GranularFilters();
+    filters.setAssetGroup("GroupA");
+
+    GranularDataRow row = new GranularDataRow();
+    row.setAssetGroup("GroupA");
+
+    List<GranularDataRow> mockRows = Arrays.asList(row);
+
+    GranularDruidRepository spyRepo = Mockito.spy(granularDruidRepository);
+    Mockito.doReturn(mockRows).when(spyRepo).reportsQuery(Mockito.any(), Mockito.any());
+
+    List<GranularDataRow> result = spyRepo.dataForReports(filters, Arrays.asList("Entity1"));
+
+    assertEquals(1, result.size());
+    assertEquals("ACTUAL", result.get(0).getDerived_dataSource());
+}
+
+@Test
+void testDataForReports_withNoFilters() {
+    GranularFilters filters = new GranularFilters();
+
+    GranularDataRow row = new GranularDataRow();
+
+    List<GranularDataRow> mockRows = Arrays.asList(row);
+
+    GranularDruidRepository spyRepo = Mockito.spy(granularDruidRepository);
+    Mockito.doReturn(mockRows).when(spyRepo).reportsQuery(Mockito.any(), Mockito.any());
+
+    List<GranularDataRow> result = spyRepo.dataForReports(filters, Arrays.asList("Entity1"));
+
+    assertEquals(1, result.size());
+    assertEquals("ACTUAL", result.get(0).getDerived_dataSource());
+}
+@Test
+void testDataForReports_throwsException() {
+    GranularFilters filters = new GranularFilters();
+
+    GranularDruidRepository spyRepo = Mockito.spy(granularDruidRepository);
+    Mockito.doThrow(new RuntimeException("Druid error")).when(spyRepo).reportsQuery(Mockito.any(), Mockito.any());
+
+    IlstRuntimeException thrown = assertThrows(
+        IlstRuntimeException.class,
+        () -> spyRepo.dataForReports(filters, Arrays.asList("entity1"))
+    );
+
+    assertTrue(thrown.getMessage().contains("Exception while fetching data using report using Druid"));
+}
+
+}
