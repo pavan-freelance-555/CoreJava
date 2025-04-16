@@ -1,0 +1,48 @@
+@Test
+void testDiscardsAndExceptionsTest() throws Exception {
+    // Setup mocked output
+    List<DruidIlstReconReportDto> output = new ArrayList<>();
+    DruidIlstReconReportDto o1 = new DruidIlstReconReportDto();
+    o1.setDerived_errorCode("3");
+    o1.setDerived_errorCausedBy("exception");
+    output.add(o1);
+
+    List<DiscardsAndExceptionsDto> groupByResponse = new ArrayList<>();
+    DiscardsAndExceptionsDto dto = new DiscardsAndExceptionsDto();
+    dto.setErrorCode("2");
+    dto.setErrorCausedBy("Exception1");
+    dto.setReportingDate("2025-01-31");
+    dto.setGroupCount(10);
+    groupByResponse.add(dto);
+
+    // Mock repository methods
+    when(druidRepository.getKeyReconDiscardsAndExceptions(any(), any(Long.class), any()))
+            .thenReturn(groupByResponse);
+
+    when(druidRepository.getDiscardsAndExceptions(
+            any(), any(), any(Long.class)))
+            .thenReturn(CompletableFuture.completedFuture(output));
+
+    // Create request
+    IlstReconDERequest request = new IlstReconDERequest();
+    request.setEngineDiscards(true);
+    request.setEngineExceptions(true);
+    request.setPreEngineDiscards(true);
+    request.setPreEngineExceptions(true);
+    request.setReporting_date(LocalDate.of(2025, 1, 31));
+    request.setRecon_id(1L);
+
+    // Call service
+    IlstReconDEResponse response = deService.discardsAndExceptions(request);
+
+    // Simple manual wait (polling)
+    int retry = 0;
+    while ((response.getEngineDiscards() == null || response.getEngineDiscards().isEmpty()) && retry < 10) {
+        Thread.sleep(100); // wait 100ms
+        retry++;
+    }
+
+    // Assert after wait
+    assertNotNull(response.getEngineDiscards());
+    assertEquals(1, response.getEngineDiscards().size());
+}
