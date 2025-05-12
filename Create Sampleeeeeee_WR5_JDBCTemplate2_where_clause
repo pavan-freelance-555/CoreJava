@@ -1,0 +1,149 @@
+src/
+├── entity/
+│   ├── Customer.java
+│   └── Order.java
+├── dto/
+│   ├── CustomerDto.java
+│   └── OrderDto.java
+├── registry/
+│   └── TableRegistry.java
+├── service/
+│   └── DynamicPaginationService.java
+├── controller/
+│   └── PaginationController.java
+
+
+public class Customer {
+    private Long id;
+    private String name;
+    private String email;
+    // Getters and Setters
+}
+
+
+public class Order {
+    private Long id;
+    private String product;
+    private Integer quantity;
+    // Getters and Setters
+}
+
+
+
+public class CustomerDto {
+    private Long id;
+    private String name;
+    private String email;
+    // Getters and Setters
+}
+
+
+public class OrderDto {
+    private Long id;
+    private String product;
+    private Integer quantity;
+    // Getters and Setters
+}
+
+
+@Component
+public class TableRegistry {
+
+    private final Map<String, Class<?>> entityMap = new HashMap<>();
+    private final Map<String, Class<?>> dtoMap = new HashMap<>();
+
+    @PostConstruct
+    public void init() {
+        entityMap.put("customers", Customer.class);
+        dtoMap.put("customers", CustomerDto.class);
+
+        entityMap.put("orders", Order.class);
+        dtoMap.put("orders", OrderDto.class);
+    }
+
+    public Class<?> getEntityClass(String table) {
+        return entityMap.get(table);
+    }
+
+    public Class<?> getDtoClass(String table) {
+        return dtoMap.get(table);
+    }
+
+    public boolean isValidTable(String table) {
+        return entityMap.containsKey(table);
+    }
+}
+
+
+
+@Service
+public class DynamicPaginationService {
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private TableRegistry tableRegistry;
+
+    public List<Object> getOffsetPage(String table, int page, int size) {
+        if (!tableRegistry.isValidTable(table)) {
+            throw new IllegalArgumentException("Invalid table name");
+        }
+
+        int offset = page * size;
+        String sql = String.format("SELECT * FROM %s ORDER BY id ASC LIMIT ? OFFSET ?", table);
+
+        Class<?> entityType = tableRegistry.getEntityClass(table);
+        List<?> entities = jdbcTemplate.query(sql, new BeanPropertyRowMapper<>(entityType), size, offset);
+
+        return new ArrayList<>(entities);
+    }
+
+    public List<Object> getKeysetPage(String table, Long lastSeenId, int size) {
+        if (!tableRegistry.isValidTable(table)) {
+            throw new IllegalArgumentException("Invalid table name");
+        }
+
+        String sql;
+        Object[] params;
+
+        if (lastSeenId != null) {
+            sql = String.format("SELECT * FROM %s WHERE id > ? ORDER BY id ASC LIMIT ?", table);
+            params = new Object[]{lastSeenId, size};
+        } else {
+            sql = String.format("SELECT * FROM %s ORDER BY id ASC LIMIT ?", table);
+            params = new Object[]{size};
+        }
+
+        Class<?> entityType = tableRegistry.getEntityClass(table);
+        List<?> entities = jdbcTemplate.query(sql, new BeanPropertyRowMapper<>(entityType), params);
+
+        return new ArrayList<>(entities);
+    }
+}
+
+
+@RestController
+@RequestMapping("/api/pagination")
+public class PaginationController {
+
+    @Autowired
+    private DynamicPaginationService paginationService;
+
+    @GetMapping("/{table}/offset")
+    public List<Object> getOffsetPage(
+            @PathVariable String table,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return paginationService.getOffsetPage(table, page, size);
+    }
+
+    @GetMapping("/{table}/keyset")
+    public List<Object> getKeysetPage(
+            @PathVariable String table,
+            @RequestParam(required = false) Long lastSeenId,
+            @RequestParam(defaultValue = "10") int size) {
+        return paginationService.getKeysetPage(table, lastSeenId, size);
+    }
+}
+
