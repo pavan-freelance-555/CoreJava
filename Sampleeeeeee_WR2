@@ -1,0 +1,110 @@
+@Service
+public class DynamicObjectService {
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private TableToClassRegistry registry;
+
+    public <T> Page<T> fetchTableData(String tableName, int page, int size) {
+        if (!registry.isValidTable(tableName)) {
+            throw new IllegalArgumentException("Invalid table: " + tableName);
+        }
+
+        Class<T> type = (Class<T>) registry.getClassForTable(tableName);
+        int offset = page * size;
+
+        String sql = String.format("SELECT * FROM %s ORDER BY 1 OFFSET ? ROWS FETCH NEXT ? ROWS ONLY", tableName);
+        List<T> resultList = jdbcTemplate.query(sql, new BeanPropertyRowMapper<>(type), offset, size);
+
+        String countSql = String.format("SELECT COUNT(*) FROM %s", tableName);
+        Integer total = jdbcTemplate.queryForObject(countSql, Integer.class);
+
+        return new PageImpl<>(resultList, PageRequest.of(page, size), total);
+    }
+}
+
+
+
+@RestController
+@RequestMapping("/api/data")
+public class DynamicObjectController {
+
+    @Autowired
+    private DynamicObjectService service;
+
+    @GetMapping("/{tableName}")
+    public ResponseEntity<?> getTableData(
+            @PathVariable String tableName,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+
+        Page<?> pageData = service.fetchTableData(tableName, page, size);
+        return ResponseEntity.ok(pageData);
+    }
+}
+
+
+
+GET /api/data/customers?page=0&size=5
+
+public enum TableEntityMapping {
+
+    CUSTOMERS("customers", Customer.class),
+    ORDERS("orders", Order.class),
+    PRODUCTS("products", Product.class);
+
+    private final String tableName;
+    private final Class<?> entityClass;
+
+    TableEntityMapping(String tableName, Class<?> entityClass) {
+        this.tableName = tableName;
+        this.entityClass = entityClass;
+    }
+
+    public String getTableName() {
+        return tableName;
+    }
+
+    public Class<?> getEntityClass() {
+        return entityClass;
+    }
+
+    public static Optional<TableEntityMapping> fromTableName(String tableName) {
+        return Arrays.stream(values())
+                .filter(mapping -> mapping.tableName.equalsIgnoreCase(tableName))
+                .findFirst();
+    }
+}
+
+
+
+@Service
+public class DynamicObjectService {
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    public <T> Page<T> fetchTableData(String tableName, int page, int size) {
+        TableEntityMapping mapping = TableEntityMapping.fromTableName(tableName)
+                .orElseThrow(() -> new IllegalArgumentException("Invalid table: " + tableName));
+
+        Class<T> type = (Class<T>) mapping.getEntityClass();
+        int offset = page * size;
+
+        String sql = String.format("SELECT * FROM %s ORDER BY 1 OFFSET ? ROWS FETCH NEXT ? ROWS ONLY", mapping.getTableName());
+        List<T> resultList = jdbcTemplate.query(sql, new BeanPropertyRowMapper<>(type), offset, size);
+
+        String countSql = String.format("SELECT COUNT(*) FROM %s", mapping.getTableName());
+        Integer total = jdbcTemplate.queryForObject(countSql, Integer.class);
+
+        return new PageImpl<>(resultList, PageRequest.of(page, size), total);
+    }
+}
+
+
+
+
+
+
