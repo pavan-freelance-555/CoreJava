@@ -1,0 +1,142 @@
+// DB Entity
+@Data
+public class CustomerEntity {
+    private Long id;
+    private String name;
+    private String email;
+}
+
+// DTO for API response
+@Data
+public class CustomerDTO {
+    private Long id;
+    private String name;
+}
+
+public enum TableEntityMapping {
+    CUSTOMERS("customers", CustomerEntity.class, CustomerDTO.class);
+
+    private final String tableName;
+    private final Class<?> entityClass;
+    private final Class<?> dtoClass;
+
+    TableEntityMapping(String tableName, Class<?> entityClass, Class<?> dtoClass) {
+        this.tableName = tableName;
+        this.entityClass = entityClass;
+        this.dtoClass = dtoClass;
+    }
+
+    public String getTableName() { return tableName; }
+    public Class<?> getEntityClass() { return entityClass; }
+    public Class<?> getDtoClass() { return dtoClass; }
+
+    public static Optional<TableEntityMapping> fromTableName(String tableName) {
+        return Arrays.stream(values())
+                .filter(e -> e.tableName.equalsIgnoreCase(tableName))
+                .findFirst();
+    }
+}
+
+
+@Component
+public class RowMapperFactory {
+    public <T> RowMapper<T> create(Class<T> type) {
+        return new BeanPropertyRowMapper<>(type);
+    }
+}
+
+
+@Service
+public class DynamicObjectService {
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private RowMapperFactory rowMapperFactory;
+
+    @Autowired
+    private ModelMapper modelMapper;
+
+    // Offset-based pagination
+    public <T, D> Page<D> fetchByOffset(String tableName, int page, int size) {
+        TableEntityMapping mapping = TableEntityMapping.fromTableName(tableName)
+                .orElseThrow(() -> new IllegalArgumentException("Invalid table: " + tableName));
+
+        Class<T> entityType = (Class<T>) mapping.getEntityClass();
+        Class<D> dtoType = (Class<D>) mapping.getDtoClass();
+
+        String sql = String.format("SELECT * FROM %s ORDER BY id OFFSET ? ROWS FETCH NEXT ? ROWS ONLY", tableName);
+        List<T> entities = jdbcTemplate.query(sql, rowMapperFactory.create(entityType), page * size, size);
+
+        String countSql = String.format("SELECT COUNT(*) FROM %s", tableName);
+        int total = jdbcTemplate.queryForObject(countSql, Integer.class);
+
+        List<D> dtos = entities.stream()
+                .map(e -> modelMapper.map(e, dtoType))
+                .collect(Collectors.toList());
+
+        return new PageImpl<>(dtos, PageRequest.of(page, size), total);
+    }
+
+    // Keyset-based pagination
+    public <T, D> List<D> fetchByCursor(String tableName, Long lastSeenId, int size) {
+        TableEntityMapping mapping = TableEntityMapping.fromTableName(tableName)
+                .orElseThrow(() -> new IllegalArgumentException("Invalid table: " + tableName));
+
+        Class<T> entityType = (Class<T>) mapping.getEntityClass();
+        Class<D> dtoType = (Class<D>) mapping.getDtoClass();
+
+        String sql = String.format(
+            "SELECT * FROM %s WHERE id > ? ORDER BY id ASC FETCH NEXT ? ROWS ONLY", tableName);
+
+        List<T> entities = jdbcTemplate.query(sql, rowMapperFactory.create(entityType),
+                                              lastSeenId == null ? 0L : lastSeenId, size);
+
+        return entities.stream()
+                .map(e -> modelMapper.map(e, dtoType))
+                .collect(Collectors.toList());
+    }
+}
+
+@RestController
+@RequestMapping("/api/data")
+public class DataController {
+
+    @Autowired
+    private DynamicObjectService service;
+
+    @GetMapping("/{tableName}/offset")
+    public ResponseEntity<?> getOffsetPaginated(
+            @PathVariable String tableName,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+
+        Page<?> result = service.fetchByOffset(tableName, page, size);
+        return ResponseEntity.ok(result);
+    }
+
+    @GetMapping("/{tableName}/cursor")
+    public ResponseEntity<?> getCursorPaginated(
+            @PathVariable String tableName,
+            @RequestParam(required = false) Long lastSeenId,
+            @RequestParam(defaultValue = "10") int size) {
+
+        List<?> result = service.fetchByCursor(tableName, lastSeenId, size);
+        return ResponseEntity.ok(result);
+    }
+}
+
+
+@Configuration
+public class MapperConfig {
+
+    @Bean
+    public ModelMapper modelMapper() {
+        return new ModelMapper();
+    }
+}
+
+
+
+
