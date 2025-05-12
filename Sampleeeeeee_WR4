@@ -1,0 +1,142 @@
+We’ll let the client pass any number of filter parameters as query‐params (e.g. ?status=ACTIVE&region=US), alongside pagination params:
+
+@RestController
+@RequestMapping("/api/data")
+public class DataController {
+
+    @Autowired
+    private DynamicObjectService service;
+
+    @GetMapping("/{tableName}/offset")
+    public ResponseEntity<?> getOffsetPaginated(
+            @PathVariable String tableName,
+            @RequestParam Map<String, String> allRequestParams
+    ) {
+        // extract page & size (with defaults), leave the rest as filters
+        int page = Integer.parseInt(allRequestParams.getOrDefault("page", "0"));
+        int size = Integer.parseInt(allRequestParams.getOrDefault("size", "10"));
+        // remove pagination params before passing filters
+        allRequestParams.remove("page");
+        allRequestParams.remove("size");
+
+        Page<?> result = service.fetchByOffset(tableName, page, size, allRequestParams);
+        return ResponseEntity.ok(result);
+    }
+
+    @GetMapping("/{tableName}/cursor")
+    public ResponseEntity<?> getCursorPaginated(
+            @PathVariable String tableName,
+            @RequestParam(required = false) Long lastSeenId,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam Map<String, String> allRequestParams
+    ) {
+        // remove pagination params from filters
+        allRequestParams.remove("lastSeenId");
+        allRequestParams.remove("size");
+
+        List<?> result = service.fetchByCursor(tableName, lastSeenId, size, allRequestParams);
+        return ResponseEntity.ok(result);
+    }
+}
+
+
+
+@Service
+public class DynamicObjectService {
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private RowMapperFactory rowMapperFactory;
+
+    @Autowired
+    private ModelMapper modelMapper;
+
+    public <T, D> Page<D> fetchByOffset(
+            String tableName,
+            int page,
+            int size,
+            Map<String, String> filters
+    ) {
+        var mapping = TableEntityMapping.fromTableName(tableName)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown table: " + tableName));
+
+        Class<T> entityType = (Class<T>) mapping.getEntityClass();
+        Class<D> dtoType    = (Class<D>) mapping.getDtoClass();
+        RowMapper<T> rm     = rowMapperFactory.create(entityType);
+
+        // Build WHERE clause + params
+        var whereClauses = new ArrayList<String>();
+        var params       = new ArrayList<Object>();
+        filters.forEach((col, val) -> {
+            whereClauses.add(col + " = ?");
+            params.add(val);
+        });
+        String whereSql = whereClauses.isEmpty()
+                ? ""
+                : " WHERE " + String.join(" AND ", whereClauses);
+
+        // Data query with OFFSET/FETCH
+        String dataSql = String.format(
+            "SELECT * FROM %s%s ORDER BY id OFFSET ? ROWS FETCH NEXT ? ROWS ONLY",
+            tableName, whereSql
+        );
+        params.add(page * size);
+        params.add(size);
+
+        List<T> entities = jdbcTemplate.query(dataSql, rm, params.toArray());
+
+        // Total count
+        String countSql = String.format("SELECT COUNT(*) FROM %s%s", tableName, whereSql);
+        int total = jdbcTemplate.queryForObject(countSql, Integer.class, params.subList(0, params.size() - 2).toArray());
+
+        // Map to DTO
+        List<D> dtos = entities.stream()
+                .map(e -> modelMapper.map(e, dtoType))
+                .collect(Collectors.toList());
+
+        return new PageImpl<>(dtos, PageRequest.of(page, size), total);
+    }
+
+    public <T, D> List<D> fetchByCursor(
+            String tableName,
+            Long lastSeenId,
+            int size,
+            Map<String, String> filters
+    ) {
+        var mapping = TableEntityMapping.fromTableName(tableName)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown table: " + tableName));
+
+        Class<T> entityType = (Class<T>) mapping.getEntityClass();
+        Class<D> dtoType    = (Class<D>) mapping.getDtoClass();
+        RowMapper<T> rm     = rowMapperFactory.create(entityType);
+
+        // Build filters + cursor
+        var whereClauses = new ArrayList<String>();
+        var params       = new ArrayList<Object>();
+        filters.forEach((col, val) -> {
+            whereClauses.add(col + " = ?");
+            params.add(val);
+        });
+        // keyset condition
+        whereClauses.add("id > ?");
+        params.add(lastSeenId == null ? 0L : lastSeenId);
+
+        String whereSql = " WHERE " + String.join(" AND ", whereClauses);
+
+        String sql = String.format(
+            "SELECT * FROM %s%s ORDER BY id ASC FETCH NEXT ? ROWS ONLY",
+            tableName, whereSql
+        );
+        params.add(size);
+
+        List<T> entities = jdbcTemplate.query(sql, rm, params.toArray());
+
+        return entities.stream()
+                .map(e -> modelMapper.map(e, dtoType))
+                .collect(Collectors.toList());
+    }
+}
+
+
