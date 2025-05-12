@@ -1,0 +1,181 @@
+src/
+├── entity/
+│   ├── Customer.java
+│   └── Order.java
+├── dto/
+│   ├── CustomerDto.java
+│   └── OrderDto.java
+├── repository/
+│   ├── CustomerRepository.java
+│   └── OrderRepository.java
+├── mapper/
+│   └── EntityToDtoMapper.java
+├── registry/
+│   └── TableEntityRegistry.java
+├── service/
+│   └── DynamicDataService.java
+├── controller/
+│   └── DynamicDataController.java
+
+@Entity
+public class Customer {
+    @Id
+    private Long id;
+
+    private String name;
+    private String email;
+
+    // getters, setters
+}
+
+
+@Entity
+public class Order {
+    @Id
+    private Long id;
+
+    private String status;
+    private BigDecimal amount;
+
+    // getters, setters
+}
+
+
+public class CustomerDto {
+    private Long id;
+    private String name;
+    private String email;
+}
+
+
+public class OrderDto {
+    private Long id;
+    private String status;
+    private BigDecimal amount;
+}
+
+
+public interface CustomerRepository extends JpaRepository<Customer, Long> {}
+public interface OrderRepository extends JpaRepository<Order, Long> {}
+
+
+@Component
+public class TableEntityRegistry {
+
+    @Autowired CustomerRepository customerRepo;
+    @Autowired OrderRepository orderRepo;
+
+    private final Map<String, JpaRepository<?, Long>> repoMap = new HashMap<>();
+    private final Map<String, Class<?>> dtoMap = new HashMap<>();
+    private final Map<String, Class<?>> entityMap = new HashMap<>();
+
+    @PostConstruct
+    public void init() {
+        repoMap.put("customers", customerRepo);
+        repoMap.put("orders", orderRepo);
+
+        dtoMap.put("customers", CustomerDto.class);
+        dtoMap.put("orders", OrderDto.class);
+
+        entityMap.put("customers", Customer.class);
+        entityMap.put("orders", Order.class);
+    }
+
+    public JpaRepository<?, Long> getRepository(String table) {
+        return repoMap.get(table);
+    }
+
+    public Class<?> getDtoClass(String table) {
+        return dtoMap.get(table);
+    }
+
+    public Class<?> getEntityClass(String table) {
+        return entityMap.get(table);
+    }
+}
+
+
+@Component
+public class EntityToDtoMapper {
+
+    @Autowired
+    private ModelMapper modelMapper;
+
+    public <T> T map(Object entity, Class<T> dtoClass) {
+        return modelMapper.map(entity, dtoClass);
+    }
+}
+
+
+@Service
+public class DynamicDataService {
+
+    @Autowired private TableEntityRegistry registry;
+    @Autowired private EntityToDtoMapper mapper;
+
+    public Page<Object> getOffsetPage(String table, int page, int size) {
+        JpaRepository<?, Long> repo = registry.getRepository(table);
+        Class<?> dtoClass = registry.getDtoClass(table);
+
+        Page<?> result = repo.findAll(PageRequest.of(page, size, Sort.by("id")));
+
+        List<Object> dtoList = result.stream()
+                .map(entity -> mapper.map(entity, dtoClass))
+                .collect(Collectors.toList());
+
+        return new PageImpl<>(dtoList, result.getPageable(), result.getTotalElements());
+    }
+
+    public List<Object> getKeysetPage(String table, Long lastSeenId, int size) {
+        Class<?> entityClass = registry.getEntityClass(table);
+        Class<?> dtoClass = registry.getDtoClass(table);
+        JpaRepository<?, Long> repo = registry.getRepository(table);
+
+        if (!(repo instanceof JpaSpecificationExecutor)) {
+            throw new IllegalArgumentException("Repo must extend JpaSpecificationExecutor");
+        }
+
+        JpaSpecificationExecutor<?> specRepo = (JpaSpecificationExecutor<?>) repo;
+
+        Specification<?> spec = (root, query, cb) -> {
+            if (lastSeenId != null) {
+                return cb.greaterThan(root.get("id"), lastSeenId);
+            }
+            return cb.conjunction();
+        };
+
+        Pageable pageable = PageRequest.of(0, size, Sort.by("id"));
+
+        Page<?> result = specRepo.findAll(spec, pageable);
+
+        return result.getContent().stream()
+                .map(entity -> mapper.map(entity, dtoClass))
+                .collect(Collectors.toList());
+    }
+}
+
+@RestController
+@RequestMapping("/api/data")
+public class DynamicDataController {
+
+    @Autowired
+    private DynamicDataService service;
+
+    @GetMapping("/{table}/offset")
+    public Page<Object> getOffsetPage(
+            @PathVariable String table,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return service.getOffsetPage(table, page, size);
+    }
+
+    @GetMapping("/{table}/keyset")
+    public List<Object> getKeysetPage(
+            @PathVariable String table,
+            @RequestParam(required = false) Long lastSeenId,
+            @RequestParam(defaultValue = "10") int size) {
+        return service.getKeysetPage(table, lastSeenId, size);
+    }
+}
+
+
