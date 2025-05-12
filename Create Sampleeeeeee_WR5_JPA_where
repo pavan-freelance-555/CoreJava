@@ -1,0 +1,122 @@
+@Entity
+@Table(name = "customers")
+public class Customer {
+    @Id
+    @GeneratedValue
+    private Long id;
+
+    private String name;
+    private String email;
+    private String status;
+    private LocalDate createdDate;
+
+    // Getters & Setters
+}
+
+
+public class FilterRequest {
+    private String table; // e.g. "customers"
+    private Map<String, Object> filters = new HashMap<>();
+    private Integer page = 0;
+    private Integer size = 10;
+    private Long lastSeenId; // for keyset
+}
+
+
+public interface CustomerRepository extends JpaRepository<Customer, Long>, JpaSpecificationExecutor<Customer> {}
+
+
+@Component
+public class DynamicSpecificationBuilder {
+
+    public <T> Specification<T> build(Map<String, Object> filters) {
+        return (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+
+            filters.forEach((key, value) -> {
+                if (value != null) {
+                    predicates.add(cb.equal(root.get(key), value));
+                }
+            });
+
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+    }
+}
+
+
+@Service
+public class DynamicQueryService {
+
+    @Autowired private CustomerRepository customerRepo;
+    @Autowired private DynamicSpecificationBuilder specBuilder;
+
+    public Page<?> getOffsetPage(FilterRequest request) {
+        if ("customers".equalsIgnoreCase(request.getTable())) {
+            Specification<Customer> spec = specBuilder.build(request.getFilters());
+            Pageable pageable = PageRequest.of(request.getPage(), request.getSize(), Sort.by("id").ascending());
+            return customerRepo.findAll(spec, pageable);
+        }
+
+        throw new IllegalArgumentException("Unknown table: " + request.getTable());
+    }
+
+    public List<Customer> getKeysetPage(FilterRequest request) {
+        Specification<Customer> spec = specBuilder.build(request.getFilters());
+
+        Specification<Customer> keysetSpec = (root, query, cb) -> {
+            Predicate base = spec.toPredicate(root, query, cb);
+            Predicate keyset = cb.greaterThan(root.get("id"), request.getLastSeenId() != null ? request.getLastSeenId() : 0);
+            return cb.and(base, keyset);
+        };
+
+        return customerRepo.findAll(
+                keysetSpec,
+                PageRequest.of(0, request.getSize(), Sort.by("id").ascending())
+        ).getContent();
+    }
+}
+
+
+
+@RestController
+@RequestMapping("/api/dynamic")
+public class DynamicQueryController {
+
+    @Autowired
+    private DynamicQueryService service;
+
+    @PostMapping("/offset")
+    public Page<?> offsetPagination(@RequestBody FilterRequest request) {
+        return service.getOffsetPage(request);
+    }
+
+    @PostMapping("/keyset")
+    public List<?> keysetPagination(@RequestBody FilterRequest request) {
+        return service.getKeysetPage(request);
+    }
+}
+
+For Offset Pagination:
+{
+  "table": "customers",
+  "filters": {
+    "status": "ACTIVE",
+    "email": "john@example.com"
+  },
+  "page": 0,
+  "size": 5
+}
+
+For Keyset Pagination:
+{
+  "table": "customers",
+  "filters": {
+    "status": "ACTIVE"
+  },
+  "lastSeenId": 102,
+  "size": 5
+}
+
+
+
