@@ -1,0 +1,138 @@
+src/
+├── entity/
+│   ├── Customer.java
+│   └── Order.java
+├── dto/
+│   ├── CustomerDto.java
+│   └── OrderDto.java
+├── mapper/
+│   └── EntityToDtoMapper.java
+├── registry/
+│   └── TableEntityRegistry.java
+├── service/
+│   └── DynamicDataJdbcService.java
+├── controller/
+│   └── DynamicDataController.java
+
+
+
+@Component
+public class TableEntityRegistry {
+
+    private final Map<String, Class<?>> entityMap = new HashMap<>();
+    private final Map<String, Class<?>> dtoMap = new HashMap<>();
+
+    @PostConstruct
+    public void init() {
+        entityMap.put("customers", Customer.class);
+        dtoMap.put("customers", CustomerDto.class);
+
+        entityMap.put("orders", Order.class);
+        dtoMap.put("orders", OrderDto.class);
+    }
+
+    public Class<?> getEntityClass(String table) {
+        return entityMap.get(table);
+    }
+
+    public Class<?> getDtoClass(String table) {
+        return dtoMap.get(table);
+    }
+
+    public boolean isValidTable(String table) {
+        return entityMap.containsKey(table);
+    }
+}
+
+
+@Component
+public class EntityToDtoMapper {
+
+    @Autowired
+    private ModelMapper modelMapper;
+
+    public <T> T map(Object entity, Class<T> dtoClass) {
+        return modelMapper.map(entity, dtoClass);
+    }
+}
+
+
+@Service
+public class DynamicDataJdbcService {
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private TableEntityRegistry registry;
+
+    @Autowired
+    private EntityToDtoMapper mapper;
+
+    public Page<Object> getOffsetPage(String table, int page, int size) {
+        if (!registry.isValidTable(table)) {
+            throw new IllegalArgumentException("Invalid table name");
+        }
+
+        int offset = page * size;
+        String sql = "SELECT * FROM " + table + " ORDER BY id ASC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY";
+
+        Class<?> entityType = registry.getEntityClass(table);
+        Class<?> dtoType = registry.getDtoClass(table);
+
+        List<?> result = jdbcTemplate.query(sql, new BeanPropertyRowMapper<>(entityType), offset, size);
+        List<Object> dtos = result.stream()
+                .map(e -> mapper.map(e, dtoType))
+                .collect(Collectors.toList());
+
+        String countSql = "SELECT COUNT(*) FROM " + table;
+        long total = jdbcTemplate.queryForObject(countSql, Long.class);
+
+        return new PageImpl<>(dtos, PageRequest.of(page, size), total);
+    }
+
+    public List<Object> getKeysetPage(String table, Long lastSeenId, int size) {
+        if (!registry.isValidTable(table)) {
+            throw new IllegalArgumentException("Invalid table name");
+        }
+
+        long cursor = lastSeenId != null ? lastSeenId : 0;
+        String sql = "SELECT * FROM " + table + " WHERE id > ? ORDER BY id ASC FETCH NEXT ? ROWS ONLY";
+
+        Class<?> entityType = registry.getEntityClass(table);
+        Class<?> dtoType = registry.getDtoClass(table);
+
+        List<?> result = jdbcTemplate.query(sql, new BeanPropertyRowMapper<>(entityType), cursor, size);
+        return result.stream()
+                .map(e -> mapper.map(e, dtoType))
+                .collect(Collectors.toList());
+    }
+}
+
+
+
+@RestController
+@RequestMapping("/api/data")
+public class DynamicDataController {
+
+    @Autowired
+    private DynamicDataJdbcService service;
+
+    @GetMapping("/{table}/offset")
+    public Page<Object> getOffsetPage(
+            @PathVariable String table,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return service.getOffsetPage(table, page, size);
+    }
+
+    @GetMapping("/{table}/keyset")
+    public List<Object> getKeysetPage(
+            @PathVariable String table,
+            @RequestParam(required = false) Long lastSeenId,
+            @RequestParam(defaultValue = "10") int size) {
+        return service.getKeysetPage(table, lastSeenId, size);
+    }
+}
+
+
