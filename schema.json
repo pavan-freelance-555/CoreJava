@@ -1,0 +1,87 @@
+InstructionRequest:
+  type: object
+  required:
+    - MsgId
+    - InitgPty
+    - PmtInfId
+    - ValueDt
+  properties:
+    MsgId:
+      type: string
+      example: "202309220836e3e3e3"
+    PmtInfId:
+      type: string
+      example: "InitiationID04"
+    InitgPty:
+      type: string
+      example: "Initiator1"
+    ValueDt:
+      type: string
+      format: date
+      example: "2025-05-05"
+    TxnAmt:
+      type: number
+      format: double
+      example: 120000
+    Ccy:
+      type: string
+      example: "INR"
+    ChrgBr:
+      type: string
+      example: "SHAR"
+    ChrgAmt:
+      type: number
+      format: double
+      example: 6000
+    MsgType:
+      type: string
+      example: "ManualPaymentInitiationFlow"
+    RmtInf:
+      type: object
+      properties:
+        Ustrd:
+          type: string
+          example: "Loan Repayment"
+    Dbtr:
+      type: object
+      properties:
+        Nm:
+          type: string
+        BldgNb:
+          type: string
+        StrtNm:
+          type: string
+        PstCd:
+          type: string
+        TwnNm:
+          type: string
+        Ctry:
+          type: string
+    DbtrAcct:
+      type: object
+      properties:
+        IBAN:
+          type: string
+    Cdtr:
+      type: object
+      properties:
+        Nm:
+          type: string
+          example: "John Doe"
+        CtryOfBirth:
+          type: string
+        CityOfBirth:
+          type: string
+    CdtrAcct:
+      type: object
+      properties:
+        IBAN:
+          type: string
+          example: "DE89370400440532013000"
+    RltdRmtInf:
+      type: object
+      properties:
+        Ref:
+          type: string
+        AddtlData:
+          type: string
