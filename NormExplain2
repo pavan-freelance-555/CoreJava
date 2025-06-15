@@ -1,0 +1,84 @@
+This is a custom validation rule class, just like your existing NORM2240, but tailored to:
+
+Handle enableRatingValidation
+
+Dynamically set ruleExecutionMode
+
+Call the Business Activity API CVS/validate endpoint
+
+
+@RuleDefinition(...)
+@RuleFactory(factory = RuleFactoryType.STRING)
+
+
+@RuleDefinition: Registers the rule in the rule engine. The metadata here describes:
+
+id: unique identifier (NORMXXXX)
+
+businessRuleRef, errorCodeMessage: used for tracking/logging
+
+ruleExecutionMode: default mode (may get overwritten at runtime)
+
+group, priority, contractTypes, etc.: classify and trigger this rule for specific contracts
+
+@RuleFactory: Tells the rule engine how to instantiate this rule. Using a string factory for dynamic rule creation.
+
+
+public class NormCVSValidationRule extends AbstractValidationRule<CommercialContractVersion>
+
+
+
+
+Inherits from the rule framework's base class.
+
+This is typed to work on a CommercialContractVersion object (your business domain object).
+
+
+
+@Autowired
+private BusinessActivityApi businessActivityApi;
+
+
+
+You will inject a service (likely Feign/WebClient) that knows how to call the CVS /validate endpoint.
+
+
+
+public IStatus executeRule(BusinessValidationContext pContext, ICommercialContractVersion pContractVersion)
+
+
+This is the main method the rule engine calls. Here's what it does step-by-step:
+
+Log that rule execution has started.
+
+Read the flag enableRatingValidation from the payload:
+
+boolean enableRatingValidation = pContext.getPayload().get("enableRatingValidation", Boolean.class);
+Based on that flag, it sets the appropriate ruleExecutionMode:
+
+
+RuleExecutionMode executionMode = enableRatingValidation
+    ? RuleExecutionMode.RATS_AND_VALIDATE_QUESTIONS_VALUES
+    : RuleExecutionMode.VALIDATE_QUESTIONS_VALUES;
+Put the ruleExecutionMode back into the payload:
+
+
+pContext.getPayload().put("ruleExecutionMode", executionMode.name());
+Call the CVS Validation Endpoint:
+
+
+businessActivityApi.callValidationEndpoint(pContext.getPayload());
+If the call is successful:
+
+
+return Status.OK;
+If something goes wrong:
+
+
+throw new RuleExecutionException("Error during CVS Validation", ex);
+✅ Method: isExecutionNeeded(...)
+
+public boolean isExecutionNeeded(BusinessValidationContext pContext, CommercialContractVersion pContractVersion)
+For now, it's hardcoded to always return true.
+
+This means the rule will always be evaluated when the engine is triggered.
