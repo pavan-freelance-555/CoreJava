@@ -1,0 +1,61 @@
+@RuleDefinition(
+    id = "NORMXXXX",
+    businessRuleRef = "MSG123456",
+    englishTitle = "Validation: CVS Rule for Business Activity API",
+    errorCodeMessage = "CVS001",
+    priority = 100,
+    target = {Target.CONTRACT},
+    group = RuleGroup.VALIDATION,
+    ruleType = RuleType.NORMALIZATION,
+    transactionType = TransactionType.MODIFICATION,
+    contractMode = ContractMode.CONVERT_TO_POLICY,
+    contractTypes = {RequestFor.CONTRACT_COMMERCIAL_LINES_2},
+    ruleExecutionMode = RuleExecutionMode.VALIDATE_QUESTIONS_VALUES
+)
+@RuleFactory(factory = RuleFactoryType.STRING)
+public class NormCVSValidationRule extends AbstractValidationRule<CommercialContractVersion> {
+
+    @Autowired
+    private BusinessActivityApi businessActivityApi;
+
+    @Override
+    public IStatus executeRule(BusinessValidationContext pContext, ICommercialContractVersion pContractVersion)
+        throws RuleExecutionException {
+        
+        log.info("Executing NormCVSValidationRule...");
+
+        // Fetch input flags from context
+        boolean enableRatingValidation = pContext.getPayload().get("enableRatingValidation", Boolean.class);
+        RuleExecutionMode executionMode = enableRatingValidation
+            ? RuleExecutionMode.RATS_AND_VALIDATE_QUESTIONS_VALUES
+            : RuleExecutionMode.VALIDATE_QUESTIONS_VALUES;
+
+        // Set ruleExecutionMode into payload
+        pContext.getPayload().put("ruleExecutionMode", executionMode.name());
+
+        try {
+            // Call Business Activity API CVS/validate endpoint
+            businessActivityApi.callValidationEndpoint(pContext.getPayload());
+
+            return Status.OK;
+        } catch (Exception ex) {
+            log.error("CVS Validation failed", ex);
+            throw new RuleExecutionException("Error during CVS Validation", ex);
+        }
+    }
+
+    @Override
+    public boolean isExecutionNeeded(BusinessValidationContext pContext, CommercialContractVersion pContractVersion) {
+        return true; // Always run this rule for now
+    }
+}
+
+
+
+
+
+
+@Bean
+public BusinessActivityApi businessActivityApi() {
+    return new BusinessActivityApi(); // Or via Feign/WebClient if it's remote
+}
