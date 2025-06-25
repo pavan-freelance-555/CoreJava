@@ -1,0 +1,69 @@
+package com.yourpackage.controller;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.yourpackage.handler.BBWirePaymentHandler;
+import com.yourpackage.model.PaymentEvent;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.*;
+import org.springframework.http.ResponseEntity;
+
+import java.util.Arrays;
+import java.util.List;
+
+import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.*;
+
+class BBWirePaymentReplayControllerTest {
+
+    @Mock
+    private BBWirePaymentHandler bbWirePaymentHandler;
+
+    @InjectMocks
+    private BBWirePaymentReplayController controller;
+
+    @Captor
+    ArgumentCaptor<PaymentEvent> paymentEventCaptor;
+
+    @BeforeEach
+    void setUp() {
+        MockitoAnnotations.openMocks(this);
+    }
+
+    @Test
+    void replayPaymentEvent_shouldReplayAllEventsSuccessfully() throws Exception {
+        // Given
+        List<String> channelMsgIds = Arrays.asList("T110-101", "T110-102");
+
+        // When
+        ResponseEntity<String> response = controller.replayPaymentEvent(channelMsgIds);
+
+        // Then
+        verify(bbWirePaymentHandler, times(channelMsgIds.size())).handleEvent(paymentEventCaptor.capture());
+
+        List<PaymentEvent> capturedEvents = paymentEventCaptor.getAllValues();
+        assertEquals(2, capturedEvents.size());
+        assertEquals("T110-101", capturedEvents.get(0).getChannelMsgID());
+        assertEquals("T110-102", capturedEvents.get(1).getChannelMsgID());
+
+        assertEquals("Payment event replayed successfully", response.getBody());
+        assertEquals(200, response.getStatusCodeValue());
+    }
+
+    @Test
+    void replayPaymentEvent_shouldThrowExceptionWhenJsonFails() {
+        // Given
+        List<String> channelMsgIds = List.of("INVALID");
+
+        // Make the mock throw JsonProcessingException
+        doThrow(new RuntimeException("Simulated JSON error"))
+                .when(bbWirePaymentHandler).handleEvent(any(PaymentEvent.class));
+
+        // When & Then
+        RuntimeException exception = assertThrows(RuntimeException.class,
+                () -> controller.replayPaymentEvent(channelMsgIds));
+
+        assertEquals("Simulated JSON error", exception.getMessage());
+        verify(bbWirePaymentHandler).handleEvent(any(PaymentEvent.class));
+    }
+}
