@@ -1,0 +1,9 @@
+curl -k -X POST "https://sit.fts.icgservices.citigroup.net/fts/internal/nam/shared-services/idp/api/processDocument" ^
+  -H "Content-Type: multipart/form-data" ^
+  -H "X-IBM-Client-Id: 589e49b9-fc8b-4751-a9ec-271d0bc0d5d1" ^
+  -H "X-IBM-Client-Secret: X5Mu6lN8goYkA3cG0nF05G5fK6eV0cY7eV0Wn2bI5mWJ5F7lE1" ^
+  -F "file=@C:\Users\MAY7930\Downloads\TestDocuments\9mb.pdf" ^
+  -F "appId=176960" ^
+  -F "docType=pricing-supplements" ^
+  -F "useCase=pre-issuance" ^
+  -F "docPackType=SINGLE"
