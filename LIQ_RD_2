@@ -5,3 +5,77 @@ Rolldown (shift days)
 Aggregation (SUM by new bucket)
       ↓
 Final reporting buckets
+
+
+
+
+
+Bucket X value = Day (X + Q) × Metric Factor
+Step 1: What does X mean here?
+In your context:
+X = a bucket/day in the early window
+(for example: Day 1, Day 2, … Day 30)
+So:
+Bucket 1 ⇒ Day 1
+Bucket 30 ⇒ Day 30
+Step 2: What does Q mean?
+Q = roll-down window length
+In your examples: Q = 30 days
+So:
+Day 1 + Q ⇒ Day 31
+Day 2 + Q ⇒ Day 32
+…
+Day 30 + Q ⇒ Day 60
+Step 3: What does Day (X + Q) mean?
+It means:
+“Look at the cashflow that occurs Q days later than bucket X.”
+So you do NOT sum earlier days.
+You pull the value from the later day.
+Step 4: What is Metric Factor?
+A percentage coming from configuration
+Used to scale the rolled-down value
+Example:
+Metric Factor = 50%
+Metric Factor = 0.5
+Step 5: Put it all together (very small example)
+Original contractual cashflows
+Day
+Amount
+1
+10
+31
+100
+32
+50
+60
+200
+Assume:
+Q = 30
+Metric Factor = 50%
+Compute bucket values using the formula
+Bucket 1 (X = 1)
+Copy code
+
+X + Q = 1 + 30 = 31
+Bucket 1 value = Day 31 × 50% = 100 × 0.5 = 50
+Bucket 2 (X = 2)
+Copy code
+
+X + Q = 2 + 30 = 32
+Bucket 2 value = Day 32 × 50% = 50 × 0.5 = 25
+Bucket 30 (X = 30)
+Copy code
+
+X + Q = 30 + 30 = 60
+Bucket 30 value = Day 60 × 50% = 200 × 0.5 = 100
+Final output using THIS formula
+Bucket (Day)
+Value
+1
+50
+2
+25
+…
+…
+30
+100
