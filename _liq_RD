@@ -1,0 +1,94 @@
+WITH base_data AS (
+    SELECT
+        @report_code                                        AS lmf_report_code,
+        lmf_metric_factor_config.lmf_report_category        AS lmf_report_sub_category,
+        src.cff_inventory_entity                            AS inventory_entity,
+        src.cff_liquidity_product                           AS lmf_product_group,
+        prod.lmf_product_code                               AS lmf_product_code,
+        src.cff_cashflow_category_code                      AS lmf_cashflow_category,
+        src.cff_report_line_level_1                         AS lmf_level_1,
+        src.cff_report_line_level_2                         AS lmf_level_2,
+        src.cff_report_line_level_3                         AS lmf_level_3,
+        src.cff_cashflow_usd                                AS lmf_metric_amount_usd,
+        src.cff_bucket_number                               AS original_day_bucket,
+        src.cff_scenario                                    AS scenario,
+        'FORECAST'                                          AS lmf_metric_type,
+        lmf_metric_factor_config.metric_factor              AS haircut
+    FROM vw_cff_report_aggregate src
+
+    INNER JOIN lmf_metric_factor_config
+        ON lmf_metric_factor_config.scenario = @scenario
+       AND lmf_metric_factor_config.lmf_report_code = @report_code
+       AND src.cff_cashflow_category_code =
+           lmf_metric_factor_config.cashflow_category_code
+       AND src.cff_inventory_entity =
+           lmf_metric_factor_config.entity
+
+    LEFT JOIN lmf_product_config prod
+        ON prod.scenario = @scenario
+       AND prod.lmf_report_code = @report_code
+       AND prod.entity = src.cff_inventory_entity
+
+    WHERE
+        src.report_date = @run_report_date
+    AND src.cff_scenario = @scenario
+    AND src.run_version = @run_version
+    AND src.cff_bucket_number > 0
+)
+
+SELECT
+    lmf_report_code,
+    lmf_report_sub_category,
+    inventory_entity,
+    lmf_product_group,
+    lmf_product_code,
+    lmf_cashflow_category,
+    lmf_level_1,
+    lmf_level_2,
+    lmf_level_3,
+
+    -- ✅ ROLLED-DOWN DAY (1–30)
+    ((original_day_bucket - 1) % 30) + 1
+        AS lmf_maturity_bucket,
+
+    -- ✅ AGGREGATED AMOUNT
+    SUM(lmf_metric_amount_usd)
+        AS lmf_metric_amount_usd,
+
+    -- Dates derived from rolled day
+    DATEADD(
+        DAY,
+        ((original_day_bucket - 1) % 30),
+        @run_report_date
+    ) AS lmf_maturity_start_date,
+
+    DATEADD(
+        DAY,
+        ((original_day_bucket - 1) % 30) + 1,
+        @run_report_date
+    ) AS lmf_maturity_end_date,
+
+    lmf_metric_type,
+    scenario,
+    haircut,
+
+    -- ✅ AGGREGATED HAIRCUT AMOUNT
+    SUM(lmf_metric_amount_usd * (haircut / 100.0))
+        AS lmf_metric_haircut_amount_usd
+
+FROM base_data
+
+GROUP BY
+    lmf_report_code,
+    lmf_report_sub_category,
+    inventory_entity,
+    lmf_product_group,
+    lmf_product_code,
+    lmf_cashflow_category,
+    lmf_level_1,
+    lmf_level_2,
+    lmf_level_3,
+    ((original_day_bucket - 1) % 30),
+    lmf_metric_type,
+    scenario,
+    haircut;
