@@ -1,0 +1,7 @@
+Original cashflows
+      ↓
+Rolldown (shift days)
+      ↓
+Aggregation (SUM by new bucket)
+      ↓
+Final reporting buckets
