@@ -1,0 +1,41 @@
+@RestController
+@RequestMapping("/files")
+public class FileZipController {
+
+    @GetMapping("/download-zip")
+    public ResponseEntity<byte[]> downloadZip() throws IOException {
+
+        byte[] zipBytes = createZipInMemory();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
+        headers.setContentDisposition(
+                ContentDisposition.attachment().filename("files.zip").build()
+        );
+
+        return new ResponseEntity<>(zipBytes, headers, HttpStatus.OK);
+    }
+
+    private byte[] createZipInMemory() throws IOException {
+
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        ZipOutputStream zipOutputStream = new ZipOutputStream(byteArrayOutputStream);
+
+        // file1.txt
+        ZipEntry file1 = new ZipEntry("file1.txt");
+        zipOutputStream.putNextEntry(file1);
+        zipOutputStream.write("hello world".getBytes(StandardCharsets.UTF_8));
+        zipOutputStream.closeEntry();
+
+        // file2.txt
+        ZipEntry file2 = new ZipEntry("file2.txt");
+        zipOutputStream.putNextEntry(file2);
+        zipOutputStream.write("hello world2".getBytes(StandardCharsets.UTF_8));
+        zipOutputStream.closeEntry();
+
+        zipOutputStream.finish();
+        zipOutputStream.close();
+
+        return byteArrayOutputStream.toByteArray();
+    }
+}
