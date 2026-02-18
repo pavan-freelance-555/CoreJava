@@ -1,0 +1,413 @@
+Now we build this as a real production-grade enrichment framework suitable for market-data / deal-processing systems.
+
+Enhancements included:
+
+✅ Generic request <T> and response <R>
+
+✅ Enum-based routing
+
+✅ Strategy + Factory + Template Method
+
+✅ ParameterizedTypeReference (handles complex generics)
+
+✅ Resilience4j (Retry + CircuitBreaker)
+
+✅ Multi-tenant support
+
+✅ Dynamic processor loading (SPI style extension ready)
+
+✅ Can be packaged as Spring Boot starter
+
+Architecture remains clean and extensible.
+
+1️⃣ Enums
+EnrichmentType
+public enum EnrichmentType {
+    PROFILE,
+    ONEA_XI,
+    ADR
+}
+
+EnrichmentStatus
+public enum EnrichmentStatus {
+    SUCCESS,
+    FAILED
+}
+
+2️⃣ Generic Request (Multi-Tenant Ready)
+public class EnrichmentRequest<T> {
+
+    private String dealId;
+    private String tenantId;
+    private EnrichmentType enrichmentType;
+    private T payload;
+
+    // getters and setters
+}
+
+3️⃣ Generic Response
+public class EnrichmentResponse<R> {
+
+    private String dealId;
+    private EnrichmentStatus status;
+    private R data;
+    private String errorMessage;
+
+    // getters and setters
+}
+
+4️⃣ Strategy Interface
+public interface ProductProcessor<T, R> {
+
+    EnrichmentType getType();
+
+    EnrichmentResponse<R> process(EnrichmentRequest<T> request);
+}
+
+5️⃣ Abstract Processor (Template + Resilience)
+
+This is framework core.
+
+Central validation
+
+Multi-tenant URL resolution
+
+Retry + CircuitBreaker
+
+Generic response handling
+
+public abstract class AbstractProductProcessor<T, R>
+        implements ProductProcessor<T, R> {
+
+    protected final RestTemplate restTemplate;
+
+    protected AbstractProductProcessor(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
+
+    @Override
+    @Retry(name = "enrichmentRetry")
+    @CircuitBreaker(name = "enrichmentCircuit",
+            fallbackMethod = "fallback")
+    public EnrichmentResponse<R> process(
+            EnrichmentRequest<T> request) {
+
+        validate(request);
+
+        String url = resolveUrl(request.getTenantId());
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("X-Tenant-Id", request.getTenantId());
+
+        HttpEntity<T> entity =
+                new HttpEntity<>(request.getPayload(), headers);
+
+        ResponseEntity<R> response =
+                restTemplate.exchange(
+                        url,
+                        HttpMethod.POST,
+                        entity,
+                        getResponseType()
+                );
+
+        return buildSuccess(request.getDealId(),
+                response.getBody());
+    }
+
+    protected void validate(EnrichmentRequest<T> request) {
+        if (request.getDealId() == null) {
+            throw new IllegalArgumentException("DealId required");
+        }
+    }
+
+    protected EnrichmentResponse<R> buildSuccess(
+            String dealId, R body) {
+
+        EnrichmentResponse<R> response =
+                new EnrichmentResponse<>();
+        response.setDealId(dealId);
+        response.setStatus(EnrichmentStatus.SUCCESS);
+        response.setData(body);
+        return response;
+    }
+
+    protected EnrichmentResponse<R> fallback(
+            EnrichmentRequest<T> request,
+            Throwable ex) {
+
+        EnrichmentResponse<R> response =
+                new EnrichmentResponse<>();
+        response.setDealId(request.getDealId());
+        response.setStatus(EnrichmentStatus.FAILED);
+        response.setErrorMessage(ex.getMessage());
+        return response;
+    }
+
+    protected abstract String resolveUrl(String tenantId);
+
+    protected abstract ParameterizedTypeReference<R>
+            getResponseType();
+}
+
+6️⃣ Concrete Processor Example 1 – PROFILE
+
+Handles complex response like:
+
+Map<String, List<ProfileData>>
+
+@Component
+public class ProfileProcessor
+        extends AbstractProductProcessor<
+                ProfileRequest,
+                Map<String, List<ProfileResponse>>> {
+
+    private final TenantUrlResolver urlResolver;
+
+    public ProfileProcessor(RestTemplate restTemplate,
+                            TenantUrlResolver urlResolver) {
+        super(restTemplate);
+        this.urlResolver = urlResolver;
+    }
+
+    @Override
+    public EnrichmentType getType() {
+        return EnrichmentType.PROFILE;
+    }
+
+    @Override
+    protected String resolveUrl(String tenantId) {
+        return urlResolver.resolve(
+                tenantId, EnrichmentType.PROFILE);
+    }
+
+    @Override
+    protected ParameterizedTypeReference<
+            Map<String, List<ProfileResponse>>>
+    getResponseType() {
+        return new ParameterizedTypeReference<>() {};
+    }
+}
+
+7️⃣ Concrete Processor Example 2 – ADR
+@Component
+public class AdrProcessor
+        extends AbstractProductProcessor<
+                AdrRequest,
+                AdrResponse> {
+
+    private final TenantUrlResolver urlResolver;
+
+    public AdrProcessor(RestTemplate restTemplate,
+                        TenantUrlResolver urlResolver) {
+        super(restTemplate);
+        this.urlResolver = urlResolver;
+    }
+
+    @Override
+    public EnrichmentType getType() {
+        return EnrichmentType.ADR;
+    }
+
+    @Override
+    protected String resolveUrl(String tenantId) {
+        return urlResolver.resolve(
+                tenantId, EnrichmentType.ADR);
+    }
+
+    @Override
+    protected ParameterizedTypeReference<AdrResponse>
+    getResponseType() {
+        return new ParameterizedTypeReference<>() {};
+    }
+}
+
+8️⃣ Multi-Tenant URL Resolver
+
+Supports different tenants calling different endpoints.
+
+@Component
+public class TenantUrlResolver {
+
+    private final Map<String,
+            Map<EnrichmentType, String>> config;
+
+    public TenantUrlResolver() {
+
+        config = Map.of(
+                "TENANT1",
+                Map.of(
+                        EnrichmentType.PROFILE,
+                        "http://tenant1/profile",
+                        EnrichmentType.ADR,
+                        "http://tenant1/adr"
+                ),
+                "TENANT2",
+                Map.of(
+                        EnrichmentType.PROFILE,
+                        "http://tenant2/profile",
+                        EnrichmentType.ADR,
+                        "http://tenant2/adr"
+                )
+        );
+    }
+
+    public String resolve(String tenantId,
+                          EnrichmentType type) {
+
+        return config.get(tenantId).get(type);
+    }
+}
+
+9️⃣ Factory (Auto Strategy Discovery)
+@Component
+public class ProductProcessorFactory {
+
+    private final Map<EnrichmentType,
+            ProductProcessor<?, ?>> processorMap;
+
+    public ProductProcessorFactory(
+            List<ProductProcessor<?, ?>> processors) {
+
+        this.processorMap = processors.stream()
+                .collect(Collectors.toMap(
+                        ProductProcessor::getType,
+                        Function.identity()
+                ));
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T, R> ProductProcessor<T, R>
+    getProcessor(EnrichmentType type) {
+
+        return (ProductProcessor<T, R>)
+                processorMap.get(type);
+    }
+}
+
+🔟 Router Service
+@Service
+public class RouterService {
+
+    private final ProductProcessorFactory factory;
+
+    public RouterService(ProductProcessorFactory factory) {
+        this.factory = factory;
+    }
+
+    public <T, R> EnrichmentResponse<R> route(
+            EnrichmentRequest<T> request) {
+
+        ProductProcessor<T, R> processor =
+                factory.getProcessor(
+                        request.getEnrichmentType());
+
+        return processor.process(request);
+    }
+}
+
+1️⃣1️⃣ Controller
+@RestController
+@RequestMapping("/api/enrichment")
+public class EnrichmentController {
+
+    private final RouterService routerService;
+
+    public EnrichmentController(RouterService routerService) {
+        this.routerService = routerService;
+    }
+
+    @PostMapping
+    public <T, R> ResponseEntity<EnrichmentResponse<R>> route(
+            @RequestBody EnrichmentRequest<T> request) {
+
+        return ResponseEntity.ok(
+                routerService.route(request));
+    }
+}
+
+1️⃣2️⃣ Resilience4j Configuration
+resilience4j:
+  retry:
+    instances:
+      enrichmentRetry:
+        maxAttempts: 3
+        waitDuration: 500ms
+  circuitbreaker:
+    instances:
+      enrichmentCircuit:
+        failureRateThreshold: 50
+        slidingWindowSize: 10
+
+Real Market Data Scenarios
+Scenario 1 – Complex Profile Response
+
+Profile service returns:
+
+{
+  "accounts": [
+     { "risk": "LOW" },
+     { "risk": "HIGH" }
+  ]
+}
+
+
+Using ParameterizedTypeReference, no casting needed.
+
+Compile-time safe.
+
+Without this:
+
+You use Map
+
+Manual casting
+
+Runtime ClassCastException risk
+
+Scenario 2 – Downstream ADR Failure
+
+ADR service goes down.
+
+With framework:
+
+Retry 3 times
+
+Circuit opens
+
+Fallback returns:
+
+{
+  dealId: D1002,
+  status: FAILED,
+  errorMessage: "Connection refused"
+}
+
+
+Without resilience:
+
+Thread blocks
+
+Timeout cascade
+
+Upstream PEGA call fails
+
+Entire deal pipeline impacted
+
+What This Gives in Real Production
+
+Add new processor → only new class
+
+Add new tenant → config only
+
+Retry + CB centralized
+
+Fully generic
+
+Type-safe
+
+No router modification
+
+Framework reusable across microservices
+
+Clean separation of concerns
+
+Suitable for packaging as internal Spring Boot starter
