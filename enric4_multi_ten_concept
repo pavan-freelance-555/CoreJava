@@ -1,0 +1,387 @@
+What is Multi-Tenant in This Context?
+
+Multi-tenant means:
+
+Same API
+Same code
+Different clients (tenants)
+Different backend endpoints
+
+Example tenants:
+
+BANK_A
+
+BANK_B
+
+BROKER_X
+
+Each tenant may have:
+
+Different Profile service URL
+
+Different ADR service URL
+
+Different credentials
+
+Different timeouts
+
+But you don’t want separate deployments.
+
+Problem Without Multi-Tenant Resolver
+
+Hardcoded URL:
+
+@Value("${processor.profile.url}")
+private String profileUrl;
+
+
+This works for one environment only.
+
+If BANK_A profile URL ≠ BANK_B profile URL
+You cannot support both simultaneously.
+
+You would need:
+
+Separate applications
+
+Or ugly if-else
+
+Bad design.
+
+What Multi-Tenant URL Resolver Does
+
+It dynamically chooses the correct downstream URL based on:
+
+tenantId
+
+enrichmentType
+
+So runtime routing becomes:
+
+tenantId + enrichmentType → correct URL
+
+Real Market Example
+Scenario 1
+
+Tenant = BANK_A
+EnrichmentType = PROFILE
+
+Call:
+
+https://banka-profile.internal/api/enrich
+
+Scenario 2
+
+Tenant = BANK_B
+EnrichmentType = PROFILE
+
+Call:
+
+https://bankb-profile.external/api/v2/enrich
+
+
+Same router code.
+Different URL resolved dynamically.
+
+How It Works Internally
+
+Instead of:
+
+protected abstract String getUrl();
+
+
+We use:
+
+protected abstract String resolveUrl(String tenantId);
+
+
+Then processor delegates URL lookup to a resolver.
+
+Implementation Options (Production Level)
+
+You have 3 proper ways.
+
+OPTION 1 — In-Memory Config (Simple)
+
+Good for small systems.
+
+@Component
+public class TenantUrlResolver {
+
+    private final Map<String, Map<EnrichmentType, String>> config;
+
+    public TenantUrlResolver() {
+
+        config = Map.of(
+            "BANK_A",
+            Map.of(
+                EnrichmentType.PROFILE,
+                "http://banka-profile/api",
+                EnrichmentType.ADR,
+                "http://banka-adr/api"
+            ),
+            "BANK_B",
+            Map.of(
+                EnrichmentType.PROFILE,
+                "http://bankb-profile/api",
+                EnrichmentType.ADR,
+                "http://bankb-adr/api"
+            )
+        );
+    }
+
+    public String resolve(String tenantId, EnrichmentType type) {
+
+        Map<EnrichmentType, String> tenantConfig =
+                config.get(tenantId);
+
+        if (tenantConfig == null) {
+            throw new IllegalArgumentException("Unknown tenant");
+        }
+
+        return tenantConfig.get(type);
+    }
+}
+
+What Happens Without This
+
+You deploy two applications:
+
+enrichment-banka
+
+enrichment-bankb
+
+Operational nightmare.
+
+OPTION 2 — YAML Based (Better)
+
+application.yml
+
+tenants:
+  BANK_A:
+    PROFILE: http://banka-profile/api
+    ADR: http://banka-adr/api
+  BANK_B:
+    PROFILE: http://bankb-profile/api
+    ADR: http://bankb-adr/api
+
+
+Configuration class:
+
+@Configuration
+@ConfigurationProperties(prefix = "tenants")
+public class TenantProperties {
+
+    private Map<String, Map<EnrichmentType, String>> configs;
+
+    public Map<String, Map<EnrichmentType, String>> getConfigs() {
+        return configs;
+    }
+
+    public void setConfigs(Map<String, Map<EnrichmentType, String>> configs) {
+        this.configs = configs;
+    }
+}
+
+
+Resolver:
+
+@Component
+public class TenantUrlResolver {
+
+    private final TenantProperties properties;
+
+    public TenantUrlResolver(TenantProperties properties) {
+        this.properties = properties;
+    }
+
+    public String resolve(String tenantId,
+                          EnrichmentType type) {
+
+        return properties.getConfigs()
+                .get(tenantId)
+                .get(type);
+    }
+}
+
+
+Now onboarding new tenant = config change only.
+
+No code change.
+
+OPTION 3 — Database Driven (Enterprise Level)
+
+Table:
+
+TENANT_ENDPOINTS
+---------------------------------------
+TENANT_ID | ENRICHMENT_TYPE | URL
+---------------------------------------
+BANK_A    | PROFILE         | http://...
+BANK_A    | ADR             | http://...
+BANK_B    | PROFILE         | http://...
+
+
+Resolver:
+
+@Service
+public class TenantUrlResolver {
+
+    private final TenantEndpointRepository repository;
+
+    public String resolve(String tenantId,
+                          EnrichmentType type) {
+
+        return repository
+                .findUrl(tenantId, type)
+                .orElseThrow();
+    }
+}
+
+
+This supports:
+
+Dynamic onboarding
+
+Runtime updates
+
+Feature toggling
+
+Canary routing
+
+How It Integrates with Processor
+
+In AbstractProductProcessor:
+
+String url = resolveUrl(request.getTenantId());
+
+
+Concrete processor:
+
+@Override
+protected String resolveUrl(String tenantId) {
+    return urlResolver.resolve(tenantId, getType());
+}
+
+
+Processor does not care about:
+
+YAML
+
+DB
+
+Config server
+
+Feature flags
+
+It only asks for URL.
+
+This is proper separation of concerns.
+
+Real Production Scenario – Capital Markets
+
+You run enrichment platform for:
+
+US Bank
+
+Canadian Bank
+
+European Broker
+
+Each has:
+
+Different compliance services
+
+Different latency SLAs
+
+Different API versions
+
+Multi-tenant resolver allows:
+
+Single codebase
+Single deployment
+Tenant-aware routing
+
+What Happens Without Multi-Tenant Design
+
+Example:
+
+BANK_A ADR service slow
+BANK_B ADR service fast
+
+If hardcoded:
+
+You can’t tune independently
+
+You can’t isolate
+
+You can’t move one tenant to new version
+
+Results:
+
+Production incidents
+
+Hotfix deployments
+
+High operational cost
+
+What Happens With Multi-Tenant Resolver
+
+You can:
+
+Move BANK_A to new ADR service
+
+Keep BANK_B untouched
+
+Route some tenants to v2 endpoint
+
+Implement blue/green per tenant
+
+Without redeploying code.
+
+Advanced Upgrade (Enterprise Level)
+
+You can extend resolver to support:
+
+Region-based routing
+
+Weighted routing
+
+Version routing
+
+SLA-based routing
+
+Tenant-specific timeout
+
+Example extension:
+
+public class TenantRoutingConfig {
+
+    private String url;
+    private int timeout;
+    private String version;
+}
+
+
+Now resolver returns config object instead of URL.
+
+Processor configures RestTemplate dynamically.
+
+Summary of Concept
+
+Multi-Tenant URL Resolver =
+
+Dynamic mapping:
+
+(tenantId + enrichmentType) → downstream endpoint
+
+
+Purpose:
+
+Avoid hardcoding
+
+Avoid duplicate deployments
+
+Allow tenant isolation
+
+Enable runtime flexibility
