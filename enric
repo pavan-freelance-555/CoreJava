@@ -1,0 +1,306 @@
+One Router API
+It receives dealId + enrichmentType + metadata
+It routes to correct Product Processor
+Product Processor calls correct Enrichment API
+Everything must be generic
+Only URL should change per processor
+Use RestTemplate
+Use design patterns
+Keep it extensible like a framework
+I will design this as a reusable routing framework.
+Design patterns used:
+Strategy Pattern → Different ProductProcessors
+Factory Pattern → Resolve processor dynamically
+Template Method Pattern → Common enrichment execution flow
+Open/Closed Principle → Add new processor without changing router
+
+Controller
+   ↓
+RouterService
+   ↓
+ProductProcessorFactory
+   ↓
+ProductProcessor (Strategy)
+   ↓
+AbstractProductProcessor (Template)
+   ↓
+RestTemplate call
+
+
+public class EnrichmentRequest {
+
+    private String dealId;
+    private String enrichmentType;  // PROFILE, ONEA_XI, ADR
+    private Map<String, Object> metadata;
+
+    // getters/setters
+}
+
+
+public class EnrichmentResponse<T> {
+
+    private String dealId;
+    private String status;
+    private T data;
+
+    // getters/setters
+}
+
+
+@RestController
+@RequestMapping("/api/enrichment")
+public class EnrichmentController {
+
+    private final RouterService routerService;
+
+    public EnrichmentController(RouterService routerService) {
+        this.routerService = routerService;
+    }
+
+    @PostMapping
+    public ResponseEntity<EnrichmentResponse<?>> route(
+            @RequestBody EnrichmentRequest request) {
+
+        EnrichmentResponse<?> response =
+                routerService.route(request);
+
+        return ResponseEntity.ok(response);
+    }
+}
+
+
+
+@Service
+public class RouterService {
+
+    private final ProductProcessorFactory factory;
+
+    public RouterService(ProductProcessorFactory factory) {
+        this.factory = factory;
+    }
+
+    public <T> EnrichmentResponse<T> route(EnrichmentRequest request) {
+
+        ProductProcessor<T> processor =
+                factory.getProcessor(request.getEnrichmentType());
+
+        return processor.process(request);
+    }
+}
+
+
+
+
+public interface ProductProcessor<T> {
+
+    EnrichmentResponse<T> process(EnrichmentRequest request);
+}
+
+Template Method (Framework Core)
+This ensures common steps:
+validate
+build request
+call API
+wrap response
+
+public abstract class AbstractProductProcessor<T>
+        implements ProductProcessor<T> {
+
+    protected final RestTemplate restTemplate;
+
+    protected AbstractProductProcessor(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
+
+    @Override
+    public EnrichmentResponse<T> process(EnrichmentRequest request) {
+
+        validate(request);
+
+        String url = getUrl();
+
+        HttpEntity<?> entity = buildHttpEntity(request);
+
+        ResponseEntity<T> response =
+                restTemplate.exchange(
+                        url,
+                        HttpMethod.POST,
+                        entity,
+                        getResponseType()
+                );
+
+        return buildResponse(request.getDealId(), response.getBody());
+    }
+
+    protected void validate(EnrichmentRequest request) {
+        if (request.getDealId() == null) {
+            throw new IllegalArgumentException("DealId required");
+        }
+    }
+
+    protected HttpEntity<?> buildHttpEntity(EnrichmentRequest request) {
+        return new HttpEntity<>(request.getMetadata());
+    }
+
+    protected EnrichmentResponse<T> buildResponse(String dealId, T body) {
+        EnrichmentResponse<T> response = new EnrichmentResponse<>();
+        response.setDealId(dealId);
+        response.setStatus("SUCCESS");
+        response.setData(body);
+        return response;
+    }
+
+    protected abstract String getUrl();
+
+    protected abstract Class<T> getResponseType();
+}
+
+Concrete Processor – Example 1 (Profile)
+
+@Component("PROFILE")
+public class ProfileProcessor
+        extends AbstractProductProcessor<Map> {
+
+    @Value("${processor.profile.url}")
+    private String profileUrl;
+
+    public ProfileProcessor(RestTemplate restTemplate) {
+        super(restTemplate);
+    }
+
+    @Override
+    protected String getUrl() {
+        return profileUrl;
+    }
+
+    @Override
+    protected Class<Map> getResponseType() {
+        return Map.class;
+    }
+}
+
+Concrete Processor – Example 2 (ADR)
+
+@Component("ADR")
+public class AdrProcessor
+        extends AbstractProductProcessor<Map> {
+
+    @Value("${processor.adr.url}")
+    private String adrUrl;
+
+    public AdrProcessor(RestTemplate restTemplate) {
+        super(restTemplate);
+    }
+
+    @Override
+    protected String getUrl() {
+        return adrUrl;
+    }
+
+    @Override
+    protected Class<Map> getResponseType() {
+        return Map.class;
+    }
+}
+
+To add new processor → just add new class.
+Router never changes.
+
+Factory Pattern
+Auto inject all strategies dynamically.
+
+@Component
+public class ProductProcessorFactory {
+
+    private final Map<String, ProductProcessor<?>> processorMap;
+
+    public ProductProcessorFactory(
+            Map<String, ProductProcessor<?>> processorMap) {
+        this.processorMap = processorMap;
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T> ProductProcessor<T> getProcessor(String type) {
+
+        ProductProcessor<?> processor = processorMap.get(type);
+
+        if (processor == null) {
+            throw new IllegalArgumentException(
+                    "No processor found for type: " + type);
+        }
+
+        return (ProductProcessor<T>) processor;
+    }
+}
+
+Spring injects beans by name:
+"PROFILE"
+"ADR"
+Clean. Extensible.
+
+RestTemplate Config
+
+@Configuration
+public class RestTemplateConfig {
+
+    @Bean
+    public RestTemplate restTemplate() {
+        return new RestTemplate();
+    }
+}
+
+processor:
+  profile:
+    url: https://profile-service/api/enrich
+  adr:
+    url: https://adr-service/api/enrich
+
+Real Market Data Example
+Example 1:
+Request:
+Copy code
+
+dealId: D1001
+enrichmentType: PROFILE
+metadata:
+   accountNumber: ACC123
+   documentName: DOC1
+Flow:
+Controller → Router → ProfileProcessor → Profile URL → returns Map
+Response:
+Copy code
+
+{
+  dealId: D1001,
+  status: SUCCESS,
+  data: {
+     riskRating: LOW,
+     country: US
+  }
+}
+Example 2:
+Copy code
+
+dealId: D2001
+enrichmentType: ADR
+metadata:
+   cusip: 123456
+   exchange: NYSE
+
+Router picks AdrProcessor.
+No code change required.
+What Happens Without This Design
+If-else routing everywhere
+Controller calling multiple services
+Hardcoded URLs
+Adding new processor modifies router logic
+Violates Open/Closed principle
+Tight coupling
+What Happens With This Design
+Add new processor → create new class
+No router modification
+Fully pluggable framework
+Common execution flow centralized
+Test each processor independently
+Easy to convert to WebClient later
+Can add Retry/CircuitBreaker in Abstract class
