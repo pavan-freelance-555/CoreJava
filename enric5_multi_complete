@@ -1,0 +1,414 @@
+Below is complete production-ready design for:
+
+Multi-Tenant URL Resolver — YAML Based
+
+Generic Request/Response
+
+Enum routing
+
+Strategy + Factory + Template
+
+YAML driven tenant config
+
+Resilience4j ready
+
+Clean separation
+
+Extendable
+
+Everything wired properly.
+
+1️⃣ application.yml
+tenants:
+  BANK_A:
+    PROFILE: http://banka-profile/api/enrich
+    ADR: http://banka-adr/api/enrich
+  BANK_B:
+    PROFILE: http://bankb-profile/api/enrich
+    ADR: http://bankb-adr/api/enrich
+
+
+Now onboarding new tenant = config change only.
+
+2️⃣ Enums
+EnrichmentType
+public enum EnrichmentType {
+    PROFILE,
+    ADR
+}
+
+EnrichmentStatus
+public enum EnrichmentStatus {
+    SUCCESS,
+    FAILED
+}
+
+3️⃣ Generic Request
+public class EnrichmentRequest<T> {
+
+    private String dealId;
+    private String tenantId;
+    private EnrichmentType enrichmentType;
+    private T payload;
+
+    // getters and setters
+}
+
+4️⃣ Generic Response
+public class EnrichmentResponse<R> {
+
+    private String dealId;
+    private EnrichmentStatus status;
+    private R data;
+    private String errorMessage;
+
+    // getters and setters
+}
+
+5️⃣ YAML Binding Class
+
+This maps YAML → Java Map.
+
+@Configuration
+@ConfigurationProperties(prefix = "tenants")
+public class TenantProperties {
+
+    private Map<String, Map<EnrichmentType, String>> configs;
+
+    public Map<String, Map<EnrichmentType, String>> getConfigs() {
+        return configs;
+    }
+
+    public void setConfigs(Map<String, Map<EnrichmentType, String>> configs) {
+        this.configs = configs;
+    }
+}
+
+
+Enable configuration properties:
+
+@SpringBootApplication
+@EnableConfigurationProperties(TenantProperties.class)
+public class EnrichmentApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(EnrichmentApplication.class, args);
+    }
+}
+
+6️⃣ Multi-Tenant URL Resolver
+@Component
+public class TenantUrlResolver {
+
+    private final TenantProperties properties;
+
+    public TenantUrlResolver(TenantProperties properties) {
+        this.properties = properties;
+    }
+
+    public String resolve(String tenantId,
+                          EnrichmentType type) {
+
+        Map<EnrichmentType, String> tenantConfig =
+                properties.getConfigs().get(tenantId);
+
+        if (tenantConfig == null) {
+            throw new IllegalArgumentException(
+                    "Unknown tenant: " + tenantId);
+        }
+
+        String url = tenantConfig.get(type);
+
+        if (url == null) {
+            throw new IllegalArgumentException(
+                    "No URL configured for type "
+                            + type + " and tenant " + tenantId);
+        }
+
+        return url;
+    }
+}
+
+
+This is clean separation:
+
+YAML manages data
+
+Resolver handles lookup
+
+Processor unaware of config source
+
+7️⃣ Strategy Interface
+public interface ProductProcessor<T, R> {
+
+    EnrichmentType getType();
+
+    EnrichmentResponse<R> process(EnrichmentRequest<T> request);
+}
+
+8️⃣ Abstract Processor (Template Method)
+public abstract class AbstractProductProcessor<T, R>
+        implements ProductProcessor<T, R> {
+
+    protected final RestTemplate restTemplate;
+    protected final TenantUrlResolver urlResolver;
+
+    protected AbstractProductProcessor(
+            RestTemplate restTemplate,
+            TenantUrlResolver urlResolver) {
+
+        this.restTemplate = restTemplate;
+        this.urlResolver = urlResolver;
+    }
+
+    @Override
+    public EnrichmentResponse<R> process(
+            EnrichmentRequest<T> request) {
+
+        validate(request);
+
+        String url = urlResolver.resolve(
+                request.getTenantId(),
+                getType());
+
+        HttpEntity<T> entity =
+                new HttpEntity<>(request.getPayload());
+
+        ResponseEntity<R> response =
+                restTemplate.exchange(
+                        url,
+                        HttpMethod.POST,
+                        entity,
+                        getResponseType());
+
+        return buildSuccess(
+                request.getDealId(),
+                response.getBody());
+    }
+
+    protected void validate(EnrichmentRequest<T> request) {
+        if (request.getDealId() == null) {
+            throw new IllegalArgumentException("DealId required");
+        }
+        if (request.getTenantId() == null) {
+            throw new IllegalArgumentException("Tenant required");
+        }
+    }
+
+    protected EnrichmentResponse<R> buildSuccess(
+            String dealId,
+            R body) {
+
+        EnrichmentResponse<R> response =
+                new EnrichmentResponse<>();
+
+        response.setDealId(dealId);
+        response.setStatus(EnrichmentStatus.SUCCESS);
+        response.setData(body);
+
+        return response;
+    }
+
+    protected abstract ParameterizedTypeReference<R>
+            getResponseType();
+}
+
+9️⃣ Concrete Processor — PROFILE
+
+Example request/response models:
+
+public class ProfileRequest {
+    private String accountNumber;
+}
+
+public class ProfileResponse {
+    private String riskRating;
+}
+
+
+Processor:
+
+@Component
+public class ProfileProcessor
+        extends AbstractProductProcessor<
+                ProfileRequest,
+                ProfileResponse> {
+
+    public ProfileProcessor(RestTemplate restTemplate,
+                            TenantUrlResolver resolver) {
+        super(restTemplate, resolver);
+    }
+
+    @Override
+    public EnrichmentType getType() {
+        return EnrichmentType.PROFILE;
+    }
+
+    @Override
+    protected ParameterizedTypeReference<ProfileResponse>
+    getResponseType() {
+        return new ParameterizedTypeReference<>() {};
+    }
+}
+
+🔟 Concrete Processor — ADR
+public class AdrRequest {
+    private String cusip;
+}
+
+public class AdrResponse {
+    private String adrRatio;
+}
+
+@Component
+public class AdrProcessor
+        extends AbstractProductProcessor<
+                AdrRequest,
+                AdrResponse> {
+
+    public AdrProcessor(RestTemplate restTemplate,
+                        TenantUrlResolver resolver) {
+        super(restTemplate, resolver);
+    }
+
+    @Override
+    public EnrichmentType getType() {
+        return EnrichmentType.ADR;
+    }
+
+    @Override
+    protected ParameterizedTypeReference<AdrResponse>
+    getResponseType() {
+        return new ParameterizedTypeReference<>() {};
+    }
+}
+
+1️⃣1️⃣ Factory
+@Component
+public class ProductProcessorFactory {
+
+    private final Map<EnrichmentType,
+            ProductProcessor<?, ?>> processorMap;
+
+    public ProductProcessorFactory(
+            List<ProductProcessor<?, ?>> processors) {
+
+        this.processorMap = processors.stream()
+                .collect(Collectors.toMap(
+                        ProductProcessor::getType,
+                        Function.identity()));
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T, R> ProductProcessor<T, R>
+    getProcessor(EnrichmentType type) {
+
+        return (ProductProcessor<T, R>)
+                processorMap.get(type);
+    }
+}
+
+1️⃣2️⃣ Router Service
+@Service
+public class RouterService {
+
+    private final ProductProcessorFactory factory;
+
+    public RouterService(ProductProcessorFactory factory) {
+        this.factory = factory;
+    }
+
+    public <T, R> EnrichmentResponse<R> route(
+            EnrichmentRequest<T> request) {
+
+        ProductProcessor<T, R> processor =
+                factory.getProcessor(
+                        request.getEnrichmentType());
+
+        return processor.process(request);
+    }
+}
+
+1️⃣3️⃣ Controller
+@RestController
+@RequestMapping("/api/enrichment")
+public class EnrichmentController {
+
+    private final RouterService routerService;
+
+    public EnrichmentController(RouterService routerService) {
+        this.routerService = routerService;
+    }
+
+    @PostMapping
+    public <T, R> ResponseEntity<EnrichmentResponse<R>> route(
+            @RequestBody EnrichmentRequest<T> request) {
+
+        return ResponseEntity.ok(
+                routerService.route(request));
+    }
+}
+
+1️⃣4️⃣ RestTemplate Config
+@Configuration
+public class RestTemplateConfig {
+
+    @Bean
+    public RestTemplate restTemplate() {
+        return new RestTemplate();
+    }
+}
+
+🔎 Real Runtime Flow
+Example 1
+
+Request:
+
+tenantId = BANK_A
+enrichmentType = PROFILE
+
+
+Resolver checks YAML:
+
+BANK_A → PROFILE → http://banka-profile/api/enrich
+
+
+ProfileProcessor calls that URL.
+
+Example 2
+tenantId = BANK_B
+enrichmentType = PROFILE
+
+
+Resolver now returns:
+
+http://bankb-profile/api/enrich
+
+
+Same processor.
+Different downstream.
+
+No code change.
+
+What Happens Without YAML-Based Resolver
+
+Hardcoded URLs
+
+Separate deployment per tenant
+
+No runtime flexibility
+
+Production change requires redeploy
+
+What Happens With This Design
+
+Onboard tenant → config only
+
+Move tenant to new service → config only
+
+Version routing possible
+
+Clean SaaS-ready architecture
+
+Single deployment
+
+Zero if-else in routing
