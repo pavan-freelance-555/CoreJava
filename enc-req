@@ -1,0 +1,37 @@
+There is one central router API.
+It receives:
+
+dealId
+
+enrichmentType
+
+Some metadata
+
+Based on enrichmentType, it must call the correct downstream enrichment service.
+
+And now we add multi-tenant behavior on top of that.
+
+Let me explain the full requirement in simple English using your screenshot context.
+
+1️⃣ What the Screenshot Is Saying
+
+You have:
+
+A PEGA system (or upstream system)
+
+It sends a request to:
+
+Enrichment Router API
+
+
+Inside that router:
+
+If enrichmentType = PROFILE → call Profile service
+
+If enrichmentType = ONEA_XI → call OneAXI service
+
+If enrichmentType = ADR → call ADR service
+
+That is basic routing.
+
+Now add one more dimension:
