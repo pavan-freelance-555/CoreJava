@@ -1,0 +1,336 @@
+EnrichmentType Enum
+package com.citi.enrichment.model;
+
+public enum EnrichmentType {
+    PROFILE,
+    ADR,
+    ONEA_XI
+}
+
+2️⃣ Generic Request
+package com.citi.enrichment.model;
+
+import jakarta.validation.constraints.NotNull;
+import java.util.Map;
+
+public class EnrichmentRequest<T extends Map<String, Object>> {
+
+    @NotNull
+    private EnrichmentType type;
+
+    @NotNull
+    private T payload;
+
+    public EnrichmentType getType() {
+        return type;
+    }
+
+    public void setType(EnrichmentType type) {
+        this.type = type;
+    }
+
+    public T getPayload() {
+        return payload;
+    }
+
+    public void setPayload(T payload) {
+        this.payload = payload;
+    }
+}
+
+3️⃣ Generic Response
+package com.citi.enrichment.model;
+
+import java.util.Map;
+
+public class EnrichmentResponse<R extends Map<String, Object>> {
+
+    private final String status;
+    private final R data;
+
+    private EnrichmentResponse(String status, R data) {
+        this.status = status;
+        this.data = data;
+    }
+
+    public static <R extends Map<String, Object>>
+    EnrichmentResponse<R> success(R data) {
+        return new EnrichmentResponse<>("SUCCESS", data);
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public R getData() {
+        return data;
+    }
+}
+
+
+Generic but constrained to Map.
+
+4️⃣ Strategy Interface
+package com.citi.enrichment.processor;
+
+import com.citi.enrichment.model.EnrichmentType;
+import java.util.Map;
+
+public interface EnrichmentProcessor<
+        I extends Map<String, Object>,
+        O extends Map<String, Object>> {
+
+    EnrichmentType getType();
+
+    O process(I input);
+}
+
+
+Strongly bounded generics.
+
+5️⃣ Abstract Processor (Template Pattern)
+
+No optional hooks. Clean flow.
+
+package com.citi.enrichment.processor.base;
+
+import com.citi.enrichment.processor.EnrichmentProcessor;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.Map;
+
+public abstract class AbstractEnrichmentProcessor<
+        I extends Map<String, Object>,
+        O extends Map<String, Object>>
+        implements EnrichmentProcessor<I, O> {
+
+    protected final RestTemplate restTemplate;
+
+    protected AbstractEnrichmentProcessor(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
+
+    @Override
+    public O process(I input) {
+        validate(input);
+        return callDownstream(input);
+    }
+
+    protected abstract void validate(I input);
+
+    protected abstract O callDownstream(I input);
+}
+
+
+Validation is mandatory.
+
+6️⃣ Profile Processor Example
+package com.citi.enrichment.processor.impl;
+
+import com.citi.enrichment.model.EnrichmentType;
+import com.citi.enrichment.processor.base.AbstractEnrichmentProcessor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.HashMap;
+import java.util.Map;
+
+@Component
+public class ProfileProcessor
+        extends AbstractEnrichmentProcessor<
+                Map<String, Object>,
+                Map<String, Object>> {
+
+    @Value("${downstream.profile.url}")
+    private String profileUrl;
+
+    public ProfileProcessor(RestTemplate restTemplate) {
+        super(restTemplate);
+    }
+
+    @Override
+    public EnrichmentType getType() {
+        return EnrichmentType.PROFILE;
+    }
+
+    @Override
+    protected void validate(Map<String, Object> input) {
+
+        if (!input.containsKey("customerId")) {
+            throw new IllegalArgumentException("customerId required");
+        }
+    }
+
+    @Override
+    protected Map<String, Object> callDownstream(
+            Map<String, Object> input) {
+
+        Map<String, Object> response =
+                restTemplate.postForObject(
+                        profileUrl,
+                        input,
+                        Map.class
+                );
+
+        // Normalize response (enterprise standardization)
+        Map<String, Object> normalized = new HashMap<>();
+        normalized.put("source", "PROFILE");
+        normalized.putAll(response);
+
+        return normalized;
+    }
+}
+
+
+Only one class per processor.
+No DTO classes required.
+
+Same structure for ADR and ONEA_XI.
+
+7️⃣ Factory Pattern
+package com.citi.enrichment.factory;
+
+import com.citi.enrichment.model.EnrichmentType;
+import com.citi.enrichment.processor.EnrichmentProcessor;
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@Component
+public class ProcessorFactory {
+
+    private final Map<EnrichmentType,
+            EnrichmentProcessor<?, ?>> processorMap;
+
+    public ProcessorFactory(
+            List<EnrichmentProcessor<?, ?>> processors) {
+
+        this.processorMap = processors.stream()
+                .collect(Collectors.toMap(
+                        EnrichmentProcessor::getType,
+                        p -> p
+                ));
+    }
+
+    public EnrichmentProcessor<?, ?> getProcessor(
+            EnrichmentType type) {
+
+        EnrichmentProcessor<?, ?> processor =
+                processorMap.get(type);
+
+        if (processor == null) {
+            throw new IllegalArgumentException(
+                    "Unsupported type: " + type);
+        }
+
+        return processor;
+    }
+}
+
+
+Zero routing logic elsewhere.
+
+8️⃣ Service Layer (Single Safe Cast Boundary)
+package com.citi.enrichment.service;
+
+import com.citi.enrichment.factory.ProcessorFactory;
+import com.citi.enrichment.model.EnrichmentRequest;
+import com.citi.enrichment.model.EnrichmentResponse;
+import com.citi.enrichment.processor.EnrichmentProcessor;
+import org.springframework.stereotype.Service;
+
+import java.util.Map;
+
+@Service
+public class EnrichmentService {
+
+    private final ProcessorFactory factory;
+
+    public EnrichmentService(ProcessorFactory factory) {
+        this.factory = factory;
+    }
+
+    @SuppressWarnings("unchecked")
+    public <I extends Map<String, Object>,
+            O extends Map<String, Object>>
+    EnrichmentResponse<O> enrich(
+            EnrichmentRequest<I> request) {
+
+        EnrichmentProcessor<I, O> processor =
+                (EnrichmentProcessor<I, O>)
+                        factory.getProcessor(request.getType());
+
+        O result = processor.process(request.getPayload());
+
+        return EnrichmentResponse.success(result);
+    }
+}
+
+
+Only one cast in entire system.
+
+9️⃣ Controller
+@RestController
+@RequestMapping("/api/v1/enrich")
+public class EnrichmentController {
+
+    private final EnrichmentService service;
+
+    public EnrichmentController(EnrichmentService service) {
+        this.service = service;
+    }
+
+    @PostMapping
+    public <I extends Map<String, Object>,
+            O extends Map<String, Object>>
+    EnrichmentResponse<O> enrich(
+            @RequestBody EnrichmentRequest<I> request) {
+
+        return service.enrich(request);
+    }
+}
+
+🔟 Why This Is Correct Enterprise Balance
+
+This design:
+
+✔ Uses generics properly
+✔ Uses Map to reduce class count
+✔ Avoids DTO explosion
+✔ Maintains routing safety
+✔ Avoids raw Object
+✔ Keeps architecture clean
+✔ Works well for gateway/orchestrator
+✔ Extensible for new processors
+✔ No if/switch logic
+
+🔥 Real Banking Use Case
+
+In enrichment routers:
+
+Payload differs per service
+
+Router does not own schema
+
+Downstream changes often
+
+Creating DTO per service becomes heavy
+
+Using generic Map<String, Object> keeps system flexible.
+
+If you want next:
+
+Add version routing
+
+Add WebClient non-blocking version
+
+Add circuit breaker
+
+Add processor auto-registration via config
+
+Add request validation framework
+
+Tell me which level you want.
