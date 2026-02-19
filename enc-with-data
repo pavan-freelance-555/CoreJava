@@ -1,0 +1,397 @@
+e will build 4 APIs:
+
+POST /enrichment → Main generic API
+
+POST /local/profile → Mock downstream PROFILE
+
+POST /local/adr → Mock downstream ADR
+
+POST /local/onea-xi → Mock downstream ONEA_XI
+
+All downstream APIs will run on same Spring Boot app (localhost).
+Main enrichment API will call them using RestTemplate.exchange().
+
+No Optional.
+No JsonNode.
+Generic request/response using Map<String,Object>.
+
+Clean architecture:
+
+Strategy Pattern
+
+Factory Pattern
+
+Template Pattern
+
+1️⃣ ENUMS
+public enum EnrichmentType {
+    PROFILE,
+    ADR,
+    ONEA_XI
+}
+
+public enum ResponseStatus {
+    SUCCESS,
+    FAILED
+}
+
+2️⃣ GENERIC REQUEST
+import java.time.Instant;
+import java.util.Map;
+
+public class EnrichmentRequest<T extends Map<String, Object>> {
+
+    private String requestId;
+    private String correlationId;
+    private String sourceSystem;
+    private String channel;
+    private String userId;
+    private EnrichmentType enrichmentType;
+    private String version;
+    private Instant requestTime;
+    private T payload;
+
+    // getters and setters
+}
+
+3️⃣ GENERIC RESPONSE
+import java.time.Instant;
+import java.util.Map;
+
+public class EnrichmentResponse<T extends Map<String, Object>> {
+
+    private String requestId;
+    private String correlationId;
+    private ResponseStatus status;
+    private String responseCode;
+    private String responseMessage;
+    private EnrichmentType enrichmentType;
+    private String version;
+    private Instant responseTime;
+    private long processingTimeMs;
+    private T data;
+
+    // getters and setters
+}
+
+4️⃣ STRATEGY INTERFACE
+public interface EnrichmentProcessor {
+
+    EnrichmentType getType();
+
+    Map<String, Object> process(Map<String, Object> payload);
+}
+
+5️⃣ TEMPLATE PATTERN (Abstract Processor)
+import org.springframework.http.*;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.Map;
+
+public abstract class AbstractEnrichmentProcessor implements EnrichmentProcessor {
+
+    protected final RestTemplate restTemplate;
+
+    protected AbstractEnrichmentProcessor(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
+
+    @Override
+    public Map<String, Object> process(Map<String, Object> payload) {
+        validate(payload);
+        return callDownstream(payload);
+    }
+
+    protected abstract void validate(Map<String, Object> payload);
+
+    protected abstract String getUrl();
+
+    private Map<String, Object> callDownstream(Map<String, Object> payload) {
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        HttpEntity<Map<String, Object>> entity =
+                new HttpEntity<>(payload, headers);
+
+        ResponseEntity<Map> response =
+                restTemplate.exchange(
+                        getUrl(),
+                        HttpMethod.POST,
+                        entity,
+                        Map.class
+                );
+
+        return response.getBody();
+    }
+}
+
+6️⃣ PROFILE PROCESSOR (Strategy Implementation)
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.Map;
+
+@Component
+public class ProfileProcessor extends AbstractEnrichmentProcessor {
+
+    public ProfileProcessor(RestTemplate restTemplate) {
+        super(restTemplate);
+    }
+
+    @Override
+    public EnrichmentType getType() {
+        return EnrichmentType.PROFILE;
+    }
+
+    @Override
+    protected void validate(Map<String, Object> payload) {
+        if (!payload.containsKey("customerId")) {
+            throw new IllegalArgumentException("customerId required");
+        }
+    }
+
+    @Override
+    protected String getUrl() {
+        return "http://localhost:8080/local/profile";
+    }
+}
+
+7️⃣ ADR PROCESSOR
+@Component
+public class AdrProcessor extends AbstractEnrichmentProcessor {
+
+    public AdrProcessor(RestTemplate restTemplate) {
+        super(restTemplate);
+    }
+
+    @Override
+    public EnrichmentType getType() {
+        return EnrichmentType.ADR;
+    }
+
+    @Override
+    protected void validate(Map<String, Object> payload) {
+        if (!payload.containsKey("customerId")) {
+            throw new IllegalArgumentException("customerId required");
+        }
+    }
+
+    @Override
+    protected String getUrl() {
+        return "http://localhost:8080/local/adr";
+    }
+}
+
+8️⃣ ONEA_XI PROCESSOR
+@Component
+public class OneaXiProcessor extends AbstractEnrichmentProcessor {
+
+    public OneaXiProcessor(RestTemplate restTemplate) {
+        super(restTemplate);
+    }
+
+    @Override
+    public EnrichmentType getType() {
+        return EnrichmentType.ONEA_XI;
+    }
+
+    @Override
+    protected void validate(Map<String, Object> payload) {
+        if (!payload.containsKey("customerId")) {
+            throw new IllegalArgumentException("customerId required");
+        }
+    }
+
+    @Override
+    protected String getUrl() {
+        return "http://localhost:8080/local/onea-xi";
+    }
+}
+
+9️⃣ FACTORY
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@Component
+public class ProcessorFactory {
+
+    private final Map<EnrichmentType, EnrichmentProcessor> processorMap;
+
+    public ProcessorFactory(List<EnrichmentProcessor> processors) {
+        this.processorMap =
+                processors.stream()
+                        .collect(Collectors.toMap(
+                                EnrichmentProcessor::getType,
+                                p -> p
+                        ));
+    }
+
+    public EnrichmentProcessor getProcessor(EnrichmentType type) {
+
+        EnrichmentProcessor processor = processorMap.get(type);
+
+        if (processor == null) {
+            throw new IllegalArgumentException("Unsupported enrichment type: " + type);
+        }
+
+        return processor;
+    }
+}
+
+🔟 ENRICHMENT SERVICE
+import org.springframework.stereotype.Service;
+
+import java.time.Instant;
+import java.util.Map;
+
+@Service
+public class EnrichmentService {
+
+    private final ProcessorFactory factory;
+
+    public EnrichmentService(ProcessorFactory factory) {
+        this.factory = factory;
+    }
+
+    public EnrichmentResponse<Map<String, Object>> enrich(
+            EnrichmentRequest<Map<String, Object>> request) {
+
+        long start = System.currentTimeMillis();
+
+        EnrichmentProcessor processor =
+                factory.getProcessor(request.getEnrichmentType());
+
+        Map<String, Object> result =
+                processor.process(request.getPayload());
+
+        EnrichmentResponse<Map<String, Object>> response =
+                new EnrichmentResponse<>();
+
+        response.setRequestId(request.getRequestId());
+        response.setCorrelationId(request.getCorrelationId());
+        response.setStatus(ResponseStatus.SUCCESS);
+        response.setResponseCode("00");
+        response.setResponseMessage("Success");
+        response.setEnrichmentType(request.getEnrichmentType());
+        response.setVersion(request.getVersion());
+        response.setResponseTime(Instant.now());
+        response.setProcessingTimeMs(System.currentTimeMillis() - start);
+        response.setData(result);
+
+        return response;
+    }
+}
+
+1️⃣1️⃣ MAIN ENRICHMENT CONTROLLER
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/enrichment")
+public class EnrichmentController {
+
+    private final EnrichmentService service;
+
+    public EnrichmentController(EnrichmentService service) {
+        this.service = service;
+    }
+
+    @PostMapping
+    public EnrichmentResponse<Map<String, Object>> enrich(
+            @RequestBody EnrichmentRequest<Map<String, Object>> request) {
+
+        return service.enrich(request);
+    }
+}
+
+1️⃣2️⃣ MOCK LOCAL DOWNSTREAM APIs
+PROFILE API
+@RestController
+@RequestMapping("/local/profile")
+public class LocalProfileController {
+
+    @PostMapping
+    public Map<String, Object> profile(@RequestBody Map<String, Object> request) {
+
+        return Map.of(
+                "customerId", request.get("customerId"),
+                "fullName", "John Smith",
+                "riskCategory", "LOW",
+                "kycStatus", "COMPLETED"
+        );
+    }
+}
+
+ADR API
+@RestController
+@RequestMapping("/local/adr")
+public class LocalAdrController {
+
+    @PostMapping
+    public Map<String, Object> adr(@RequestBody Map<String, Object> request) {
+
+        return Map.of(
+                "customerId", request.get("customerId"),
+                "city", "New York",
+                "country", "US",
+                "residencyStatus", "RESIDENT"
+        );
+    }
+}
+
+ONEA_XI API
+@RestController
+@RequestMapping("/local/onea-xi")
+public class LocalOneaXiController {
+
+    @PostMapping
+    public Map<String, Object> oneaXi(@RequestBody Map<String, Object> request) {
+
+        return Map.of(
+                "customerId", request.get("customerId"),
+                "totalExposureAmount", 150000,
+                "currency", "USD",
+                "activeLoanCount", 2
+        );
+    }
+}
+
+1️⃣3️⃣ RestTemplate Bean
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.client.RestTemplate;
+
+@Configuration
+public class AppConfig {
+
+    @Bean
+    public RestTemplate restTemplate() {
+        return new RestTemplate();
+    }
+}
+
+🚀 Runtime Flow
+
+Client calls:
+
+POST /enrichment
+
+
+Framework:
+
+Factory selects correct Strategy
+
+Template method validates
+
+RestTemplate.exchange calls local API
+
+Response wrapped generically
+
+No if/switch.
+Single deployment.
+Clean extensible architecture
