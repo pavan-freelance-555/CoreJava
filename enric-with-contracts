@@ -1,0 +1,308 @@
+This is not just enrichment.
+This is Intelligent Document Processing (IDP) enrichment orchestration.
+
+The API receives:
+
+dealId
+
+enrichmentType
+
+metadata
+
+documentName
+
+accountNumber
+
+documentType
+
+legalEntity
+
+etc
+
+And returns enriched intelligence about that deal/document.
+
+This is typical in:
+
+Trade Finance
+
+Loan Origination
+
+Corporate Banking
+
+KYC document processing
+
+Now I will give you:
+
+Clean enterprise request contract
+
+Clean enterprise response contract
+
+Error contract
+
+Recommended metadata fields (real banking context)
+
+Example input & output
+
+No unnecessary generics.
+Single reusable contract.
+Production-grade structure.
+
+1️⃣ REQUEST CONTRACT (Enterprise IDP Enrichment)
+{
+  "requestId": "REQ-20260219-0001",
+  "correlationId": "CORR-987654321",
+  "dealId": "DEAL-4589001",
+  "enrichmentType": "PROFILE",
+  "priority": "HIGH",
+  "sourceSystem": "IDP_ENGINE",
+  "channel": "SYSTEM",
+  "userId": "SYSTEM",
+  "requestTime": "2026-02-19T10:15:30Z",
+  "metadata": {
+    "documentName": "Loan_Agreement_4589001.pdf",
+    "documentType": "LOAN_AGREEMENT",
+    "accountNumber": "123456789012",
+    "customerId": "CUST10001",
+    "legalEntity": "CITI_US",
+    "countryCode": "US",
+    "currency": "USD",
+    "productType": "TERM_LOAN",
+    "processingStage": "UNDERWRITING",
+    "documentSource": "UPLOAD",
+    "ocrConfidenceScore": 98.5
+  }
+}
+
+2️⃣ Why These Fields (Banking Context)
+dealId
+
+Primary business key.
+Everything in banking is deal-centric.
+
+documentName
+
+Needed for:
+
+Audit
+
+Case reconstruction
+
+Compliance
+
+accountNumber
+
+Used for:
+
+Exposure checks
+
+Risk aggregation
+
+Sanctions screening
+
+legalEntity
+
+Important in global banks.
+Routing depends on entity.
+
+processingStage
+
+Helps:
+
+Underwriting
+
+Credit decision
+
+Compliance review
+
+ocrConfidenceScore
+
+IDP specific.
+If confidence low → reprocess.
+
+3️⃣ RESPONSE CONTRACT (Enterprise)
+{
+  "requestId": "REQ-20260219-0001",
+  "correlationId": "CORR-987654321",
+  "dealId": "DEAL-4589001",
+  "status": "SUCCESS",
+  "responseCode": "00",
+  "responseMessage": "Profile enrichment completed",
+  "enrichmentType": "PROFILE",
+  "responseTime": "2026-02-19T10:15:31Z",
+  "processingTimeMs": 180,
+  "auditId": "AUD-88990011",
+  "downstreamService": "PROFILE_SERVICE",
+  "data": {
+    "customerName": "John Smith",
+    "customerSegment": "PREMIUM",
+    "riskRating": "LOW",
+    "kycStatus": "COMPLETED",
+    "sanctionFlag": false,
+    "pepFlag": false,
+    "countryOfResidence": "US"
+  },
+  "warnings": []
+}
+
+4️⃣ Another Example — ONEA_XI (Exposure)
+Request
+{
+  "requestId": "REQ-20260219-0002",
+  "correlationId": "CORR-8888888",
+  "dealId": "DEAL-4589001",
+  "enrichmentType": "ONEA_XI",
+  "priority": "NORMAL",
+  "sourceSystem": "IDP_ENGINE",
+  "channel": "SYSTEM",
+  "userId": "SYSTEM",
+  "requestTime": "2026-02-19T10:20:00Z",
+  "metadata": {
+    "documentName": "Financial_Statement.pdf",
+    "accountNumber": "123456789012",
+    "customerId": "CUST10001",
+    "legalEntity": "CITI_US",
+    "currency": "USD"
+  }
+}
+
+Response
+{
+  "requestId": "REQ-20260219-0002",
+  "correlationId": "CORR-8888888",
+  "dealId": "DEAL-4589001",
+  "status": "SUCCESS",
+  "responseCode": "00",
+  "responseMessage": "Exposure enrichment completed",
+  "enrichmentType": "ONEA_XI",
+  "responseTime": "2026-02-19T10:20:01Z",
+  "processingTimeMs": 240,
+  "auditId": "AUD-99001122",
+  "downstreamService": "EXPOSURE_SERVICE",
+  "data": {
+    "totalExposureAmount": 1500000,
+    "currency": "USD",
+    "activeLoanCount": 3,
+    "overdueAmount": 0,
+    "creditLimitUtilization": 72,
+    "riskBand": "LOW"
+  },
+  "warnings": []
+}
+
+5️⃣ Java Contracts (Architect-Grade)
+EnrichmentType Enum
+public enum EnrichmentType {
+    PROFILE,
+    ADR,
+    ONEA_XI
+}
+
+Status Enum
+public enum ResponseStatus {
+    SUCCESS,
+    FAILED,
+    PARTIAL_SUCCESS
+}
+
+Metadata Object
+import java.math.BigDecimal;
+
+public class Metadata {
+
+    private String documentName;
+    private String documentType;
+    private String accountNumber;
+    private String customerId;
+    private String legalEntity;
+    private String countryCode;
+    private String currency;
+    private String productType;
+    private String processingStage;
+    private String documentSource;
+    private BigDecimal ocrConfidenceScore;
+
+    // getters and setters
+}
+
+EnrichmentRequest
+import java.time.Instant;
+
+public class EnrichmentRequest {
+
+    private String requestId;
+    private String correlationId;
+    private String dealId;
+    private EnrichmentType enrichmentType;
+    private String priority;
+    private String sourceSystem;
+    private String channel;
+    private String userId;
+    private Instant requestTime;
+    private Metadata metadata;
+
+    // getters and setters
+}
+
+EnrichmentResponse
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+
+public class EnrichmentResponse {
+
+    private String requestId;
+    private String correlationId;
+    private String dealId;
+    private ResponseStatus status;
+    private String responseCode;
+    private String responseMessage;
+    private EnrichmentType enrichmentType;
+    private Instant responseTime;
+    private long processingTimeMs;
+    private String auditId;
+    private String downstreamService;
+    private Map<String, Object> data;
+    private List<String> warnings;
+
+    // getters and setters
+}
+
+6️⃣ Why This Is Architecturally Correct
+
+Deal-centric
+
+Document-aware
+
+IDP-friendly
+
+Audit compliant
+
+Regulator friendly
+
+Supports multiple enrichment types
+
+Single contract
+
+Clean routing via Strategy
+
+This structure works in:
+
+Loan Origination
+
+Trade Finance
+
+Corporate KYC
+
+Credit Risk processing
+
+Intelligent Document Processing platforms
+
+If you want next:
+
+Full controller + service + processor integration using this contract
+
+Async enrichment for multiple types in parallel
+
+Multi-stage enrichment (PROFILE → ADR → EXPOSURE chain)
+
+Event-driven version using Kafka
