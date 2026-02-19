@@ -306,3 +306,64 @@ Async enrichment for multiple types in parallel
 Multi-stage enrichment (PROFILE → ADR → EXPOSURE chain)
 
 Event-driven version using Kafka
+
+{
+  "requestId": "REQ-ADR-20260219-0001",
+  "correlationId": "CORR-987654321",
+  "dealId": "DEAL-4589001",
+  "enrichmentType": "ADR",
+  "priority": "HIGH",
+  "sourceSystem": "IDP_ENGINE",
+  "channel": "SYSTEM",
+  "userId": "SYSTEM",
+  "requestTime": "2026-02-19T11:00:00Z",
+  "metadata": {
+    "documentName": "Customer_KYC_Form.pdf",
+    "documentType": "KYC_FORM",
+    "accountNumber": "123456789012",
+    "customerId": "CUST10001",
+    "legalEntity": "CITI_US",
+    "countryCode": "US",
+    "currency": "USD",
+    "productType": "SAVINGS_ACCOUNT",
+    "processingStage": "KYC_VALIDATION",
+    "documentSource": "UPLOAD",
+    "ocrConfidenceScore": 97.8,
+    "addressLine1": "123 Wall Street",
+    "addressLine2": "Suite 100",
+    "city": "New York",
+    "state": "NY",
+    "postalCode": "10005"
+  }
+}
+
+
+{
+  "requestId": "REQ-ADR-20260219-0001",
+  "correlationId": "CORR-987654321",
+  "dealId": "DEAL-4589001",
+  "status": "SUCCESS",
+  "responseCode": "00",
+  "responseMessage": "Address enrichment completed",
+  "enrichmentType": "ADR",
+  "responseTime": "2026-02-19T11:00:01Z",
+  "processingTimeMs": 145,
+  "auditId": "AUD-44556677",
+  "downstreamService": "ADR_SERVICE",
+  "data": {
+    "registeredAddressLine1": "123 Wall Street",
+    "registeredAddressLine2": "Suite 100",
+    "registeredCity": "New York",
+    "registeredState": "NY",
+    "registeredPostalCode": "10005",
+    "registeredCountry": "US",
+    "residencyStatus": "RESIDENT",
+    "addressVerified": true,
+    "addressMatchScore": 99.2,
+    "sanctionCountryFlag": false,
+    "highRiskJurisdictionFlag": false,
+    "lastUpdatedDate": "2025-12-01"
+  },
+  "warnings": []
+}
+
