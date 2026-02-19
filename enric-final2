@@ -130,6 +130,96 @@ package com.citi.enrichment.processor.impl;
 import com.citi.enrichment.model.EnrichmentType;
 import com.citi.enrichment.processor.base.AbstractEnrichmentProcessor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.HashMap;
+import java.util.Map;
+
+@Component
+public class ProfileProcessor
+        extends AbstractEnrichmentProcessor<
+                Map<String, Object>,
+                Map<String, Object>> {
+
+    @Value("${downstream.profile.url}")
+    private String profileUrl;
+
+    public ProfileProcessor(RestTemplate restTemplate) {
+        super(restTemplate);
+    }
+
+    @Override
+    public EnrichmentType getType() {
+        return EnrichmentType.PROFILE;
+    }
+
+    @Override
+    protected void validate(Map<String, Object> input) {
+        if (!input.containsKey("customerId")) {
+            throw new IllegalArgumentException("customerId required");
+        }
+    }
+
+    @Override
+    protected Map<String, Object> callDownstream(
+            Map<String, Object> input) {
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-Correlation-Id",
+                String.valueOf(System.currentTimeMillis()));
+
+        HttpEntity<Map<String, Object>> entity =
+                new HttpEntity<>(input, headers);
+
+        ResponseEntity<Map> response =
+                restTemplate.exchange(
+                        profileUrl,
+                        HttpMethod.POST,
+                        entity,
+                        Map.class
+                );
+
+        if (!response.getStatusCode().is2xxSuccessful()) {
+            throw new RuntimeException(
+                    "Downstream call failed: "
+                            + response.getStatusCode());
+        }
+
+        Map<String, Object> normalized =
+                new HashMap<>(response.getBody());
+
+        normalized.put("source", "PROFILE");
+
+        return normalized;
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import com.citi.enrichment.model.EnrichmentType;
+import com.citi.enrichment.processor.base.AbstractEnrichmentProcessor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
