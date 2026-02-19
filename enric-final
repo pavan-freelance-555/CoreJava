@@ -1,0 +1,274 @@
+com.citi.enrichment
+ ├── controller
+ ├── service
+ ├── processor
+ │     ├── base
+ │     ├── impl
+ ├── factory
+ ├── model
+ ├── config
+ └── exception
+
+ package com.citi.enrichment.model;
+
+public enum EnrichmentType {
+    PROFILE,
+    ADR,
+    ONEA_XI
+}
+
+
+package com.citi.enrichment.model;
+
+import jakarta.validation.constraints.NotNull;
+
+public class GenericEnrichmentRequest<T> {
+
+    @NotNull
+    private EnrichmentType enrichmentType;
+
+    @NotNull
+    private T payload;
+
+    
+}
+
+
+
+package com.citi.enrichment.model;
+
+public class GenericEnrichmentResponse<R> {
+
+    private String status;
+    private String message;
+    private R data;
+
+    public GenericEnrichmentResponse(String status, String message, R data) {
+        this.status = status;
+        this.message = message;
+        this.data = data;
+    }
+
+    public static <R> GenericEnrichmentResponse<R> success(R data) {
+        return new GenericEnrichmentResponse<>("SUCCESS", "Processed Successfully", data);
+    }
+
+    public static <R> GenericEnrichmentResponse<R> failure(String message) {
+        return new GenericEnrichmentResponse<>("FAILURE", message, null);
+    }
+
+    // getters
+}
+
+Strategy Pattern
+EnrichmentProcessor.java
+package com.citi.enrichment.processor;
+
+import com.citi.enrichment.model.EnrichmentType;
+
+public interface EnrichmentProcessor {
+
+    EnrichmentType getType();
+
+    Object process(Object payload);
+}
+
+
+Template Method Pattern
+AbstractEnrichmentProcessor.java
+package com.citi.enrichment.processor.base;
+
+import com.citi.enrichment.processor.EnrichmentProcessor;
+import org.springframework.web.client.RestTemplate;
+
+public abstract class AbstractEnrichmentProcessor implements EnrichmentProcessor {
+
+    protected final RestTemplate restTemplate;
+
+    protected AbstractEnrichmentProcessor(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
+
+    @Override
+    public Object process(Object payload) {
+        validate(payload);
+        Object response = callDownstream(payload);
+        return transform(response);
+    }
+
+    protected void validate(Object payload) {
+        // common validation logic
+    }
+
+    protected abstract Object callDownstream(Object payload);
+
+    protected Object transform(Object response) {
+        return response;
+    }
+}
+
+Concrete Processors
+ProfileProcessor.java
+package com.citi.enrichment.processor.impl;
+
+import com.citi.enrichment.model.EnrichmentType;
+import com.citi.enrichment.processor.base.AbstractEnrichmentProcessor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestTemplate;
+
+@Component
+public class ProfileProcessor extends AbstractEnrichmentProcessor {
+
+    @Value("${downstream.profile.url}")
+    private String profileUrl;
+
+    public ProfileProcessor(RestTemplate restTemplate) {
+        super(restTemplate);
+    }
+
+    @Override
+    public EnrichmentType getType() {
+        return EnrichmentType.PROFILE;
+    }
+
+    @Override
+    protected Object callDownstream(Object payload) {
+        return restTemplate.postForObject(profileUrl, payload, Object.class);
+    }
+}
+
+AdrProcessor.java
+@Component
+public class AdrProcessor extends AbstractEnrichmentProcessor {
+
+    @Value("${downstream.adr.url}")
+    private String adrUrl;
+
+    public AdrProcessor(RestTemplate restTemplate) {
+        super(restTemplate);
+    }
+
+    @Override
+    public EnrichmentType getType() {
+        return EnrichmentType.ADR;
+    }
+
+    @Override
+    protected Object callDownstream(Object payload) {
+        return restTemplate.postForObject(adrUrl, payload, Object.class);
+    }
+}
+
+OneaXiProcessor.java
+@Component
+public class OneaXiProcessor extends AbstractEnrichmentProcessor {
+
+    @Value("${downstream.oneaxi.url}")
+    private String oneaxiUrl;
+
+    public OneaXiProcessor(RestTemplate restTemplate) {
+        super(restTemplate);
+    }
+
+    @Override
+    public EnrichmentType getType() {
+        return EnrichmentType.ONEA_XI;
+    }
+
+    @Override
+    protected Object callDownstream(Object payload) {
+        return restTemplate.postForObject(oneaxiUrl, payload, Object.class);
+    }
+}
+
+Factory Pattern
+EnrichmentProcessorFactory.java
+package com.citi.enrichment.factory;
+
+import com.citi.enrichment.model.EnrichmentType;
+import com.citi.enrichment.processor.EnrichmentProcessor;
+import org.springframework.stereotype.Component;
+
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.List;
+
+@Component
+public class EnrichmentProcessorFactory {
+
+    private final Map<EnrichmentType, EnrichmentProcessor> processorMap;
+
+    public EnrichmentProcessorFactory(List<EnrichmentProcessor> processors) {
+        this.processorMap = processors.stream()
+                .collect(Collectors.toMap(
+                        EnrichmentProcessor::getType,
+                        Function.identity()
+                ));
+    }
+
+    public EnrichmentProcessor getProcessor(EnrichmentType type) {
+        EnrichmentProcessor processor = processorMap.get(type);
+        if (processor == null) {
+            throw new IllegalArgumentException("Unsupported Enrichment Type: " + type);
+        }
+        return processor;
+    }
+}
+
+Service Layer
+EnrichmentService.java
+package com.citi.enrichment.service;
+
+import com.citi.enrichment.factory.EnrichmentProcessorFactory;
+import com.citi.enrichment.model.GenericEnrichmentRequest;
+import com.citi.enrichment.model.GenericEnrichmentResponse;
+import org.springframework.stereotype.Service;
+
+@Service
+public class EnrichmentService {
+
+    private final EnrichmentProcessorFactory factory;
+
+    public EnrichmentService(EnrichmentProcessorFactory factory) {
+        this.factory = factory;
+    }
+
+    public <T> GenericEnrichmentResponse<?> enrich(GenericEnrichmentRequest<T> request) {
+
+        Object result = factory
+                .getProcessor(request.getEnrichmentType())
+                .process(request.getPayload());
+
+        return GenericEnrichmentResponse.success(result);
+    }
+}
+
+EnrichmentController.java
+package com.citi.enrichment.controller;
+
+import com.citi.enrichment.model.GenericEnrichmentRequest;
+import com.citi.enrichment.model.GenericEnrichmentResponse;
+import com.citi.enrichment.service.EnrichmentService;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/v1/enrich")
+public class EnrichmentController {
+
+    private final EnrichmentService service;
+
+    public EnrichmentController(EnrichmentService service) {
+        this.service = service;
+    }
+
+    @PostMapping
+    public <T> GenericEnrichmentResponse<?> enrich(
+            @RequestBody GenericEnrichmentRequest<T> request) {
+
+        return service.enrich(request);
+    }
+}
+
+
