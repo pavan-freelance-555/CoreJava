@@ -1,0 +1,46 @@
+ ┌────────────────────┐
+ │  Client / UI       │
+ │  (Deal Upload)     │
+ └─────────┬──────────┘
+           │
+           ▼
+ ┌────────────────────┐
+ │ EnrichmentController│
+ └─────────┬──────────┘
+           │
+           ▼
+ ┌──────────────────────────────┐
+ │ EnrichmentService            │
+ │ - calls Factory              │
+ │ - executes Strategy          │
+ └─────────┬────────────────────┘
+           │
+           ▼
+ ┌──────────────────────────────┐
+ │ EnrichmentStrategyFactory    │
+ │ - returns ADR/Profile/ONEA   │
+ └─────────┬────────────────────┘
+           │
+           ▼
+ ┌──────────────────────────────┐
+ │ EnrichmentStrategy           │
+ │ (Template Pattern)           │
+ │                              │
+ │ 1. validateRequest()         │
+ │ 2. buildDownstreamPayload()  │
+ │ 3. callDownstream()          │
+ │ 4. transformResponse()       │
+ └─────────┬────────────────────┘
+           │
+           ▼
+ ┌────────────────────┐
+ │ Local Downstream   │
+ │ API (ADR/Profile/  │
+ │ ONEA)              │
+ └─────────┬──────────┘
+           │
+           ▼
+ ┌────────────────────┐
+ │ Enrichment Response│
+ │ Returned with dealId│
+ └────────────────────┘
