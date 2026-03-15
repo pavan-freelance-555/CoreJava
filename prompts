@@ -1,0 +1,400 @@
+They follow a consistent prompt structure.
+Copy code
+
+Goal
+Input
+Constraints
+Output
+Technology
+1. Architecture Design Prompt
+Use when designing new microservices or platforms.
+Copy code
+
+/architecture
+
+Design a scalable backend system for processing market data events.
+
+Input:
+Kafka event stream containing price updates.
+
+Requirements:
+- real-time processing
+- fault tolerance
+- horizontal scalability
+
+Technology:
+Spring Boot, Kafka, Redis, PostgreSQL, Kubernetes.
+
+Provide:
+- component architecture
+- service responsibilities
+- data flow
+- failure handling strategy
+Example result
+Copy code
+
+MarketDataFeed
+      ↓
+Kafka Topic
+      ↓
+Spring Boot Consumer
+      ↓
+Aggregation Service
+      ↓
+Redis Cache
+      ↓
+REST API for consumers
+2. Microservice Implementation Prompt
+Copy code
+
+/implementation
+
+Implement a Spring Boot microservice that consumes Kafka messages
+and stores processed results in PostgreSQL.
+
+Input:
+Kafka topic containing JSON events.
+
+Requirements:
+- idempotent processing
+- retry mechanism
+- structured logging
+- REST endpoint to query aggregated results
+
+Technology:
+Spring Boot 3, Kafka, JPA, PostgreSQL.
+3. Streaming Data Processing Prompt
+For data engineering pipelines.
+Copy code
+
+/implementation
+
+Write a Java service that processes streaming events and performs
+hourly aggregation.
+
+Input:
+Stream<Event>
+
+Requirements:
+- group events by hour
+- compute metrics
+- handle high throughput
+- maintain O(N) processing
+
+Technology:
+Java 8 streams, ConcurrentHashMap, Kafka consumer.
+Example result
+Copy code
+
+ConcurrentHashMap<Hour, Metrics>
+4. Data Pipeline Design Prompt
+Copy code
+
+/architecture
+
+Design a data pipeline that ingests log files and loads them into
+a warehouse for analytics.
+
+Requirements:
+- batch ingestion
+- schema validation
+- partitioned storage
+- query optimization
+
+Technology:
+Spring Boot, Airflow, Parquet, Snowflake.
+5. SQL Optimization Prompt
+Copy code
+
+/optimize
+
+Optimize the following SQL query for large datasets.
+
+Requirements:
+- reduce full table scans
+- improve join performance
+- recommend indexing strategy
+- explain query plan improvements
+Very useful when working with Azure SQL / Snowflake / BigQuery.
+6. Refactoring Legacy Code Prompt
+Copy code
+
+/refactor
+
+Refactor this Spring Boot service to follow SOLID principles.
+
+Goals:
+- remove tight coupling
+- introduce service interfaces
+- improve testability
+- reduce code duplication
+7. Performance Optimization Prompt
+Copy code
+
+/optimize
+
+Analyze this Spring Boot service for performance bottlenecks.
+
+Focus on:
+- thread usage
+- database calls
+- blocking operations
+- memory consumption
+
+Provide optimized implementation.
+8. Concurrency Design Prompt
+Useful for high throughput systems.
+Copy code
+
+/design
+
+Design a concurrent processing mechanism for handling
+millions of events per hour.
+
+Requirements:
+- thread-safe data structures
+- minimal lock contention
+- scalable processing
+
+Technology:
+Java ExecutorService
+CompletableFuture
+ConcurrentHashMap
+9. Resilience Pattern Prompt
+Copy code
+
+/implementation
+
+Implement a resilient service call pattern.
+
+Requirements:
+- circuit breaker
+- retry
+- fallback logic
+- timeout handling
+
+Technology:
+Spring Boot
+Resilience4j
+RestTemplate or WebClient
+Example result
+Copy code
+
+Controller → Service → CircuitBreaker → External API
+10. Observability Prompt
+Copy code
+
+/implementation
+
+Add observability to this Spring Boot microservice.
+
+Requirements:
+- structured logging
+- distributed tracing
+- metrics collection
+- health checks
+
+Technology:
+Micrometer
+Prometheus
+Grafana
+OpenTelemetry
+11. API Design Prompt
+Copy code
+
+/design
+
+Design REST APIs for a market data service.
+
+Requirements:
+- retrieve instrument prices
+- historical price queries
+- pagination
+- rate limiting
+12. Data Model Design Prompt
+Copy code
+
+/design
+
+Design database schema for storing financial transaction events.
+
+Requirements:
+- high write throughput
+- partitioned tables
+- time-series queries
+13. Batch Processing Prompt
+Copy code
+
+/implementation
+
+Implement a batch processing job that reads files from storage
+and loads them into a staging database.
+
+Requirements:
+- chunk processing
+- error handling
+- retry failed records
+
+Technology:
+Spring Batch
+Azure Blob Storage
+SQL Server
+14. Event Driven Architecture Prompt
+Copy code
+
+/architecture
+
+Design an event-driven architecture for order processing.
+
+Requirements:
+- asynchronous processing
+- event replay capability
+- failure recovery
+
+Technology:
+Kafka
+Spring Boot
+Avro schema registry
+15. Code Explanation Prompt
+Copy code
+
+/explain
+
+Explain how this reactive pipeline works.
+
+Focus on:
+Flux
+Mono
+Backpressure
+Thread model
+16. Test Generation Prompt
+Copy code
+
+/tests
+
+Generate JUnit tests for this service.
+
+Test cases:
+- valid request
+- invalid input
+- downstream failure
+- timeout scenario
+17. CI/CD Pipeline Prompt
+Copy code
+
+/architecture
+
+Design CI/CD pipeline for deploying Spring Boot microservices.
+
+Requirements:
+- automated testing
+- container build
+- environment promotion
+
+Technology:
+GitHub Actions
+Docker
+Kubernetes
+18. Data Quality Prompt
+Copy code
+
+/implementation
+
+Implement data validation layer for incoming events.
+
+Requirements:
+- schema validation
+- reject invalid records
+- log validation errors
+19. Caching Strategy Prompt
+Copy code
+
+/design
+
+Design caching strategy for high-frequency data queries.
+
+Requirements:
+- low latency
+- cache invalidation
+- distributed cache
+
+Technology:
+Redis
+Spring Cache
+20. Real-Time Analytics Prompt
+Copy code
+
+/architecture
+
+Design real-time analytics system for monitoring system logs.
+
+Requirements:
+- error aggregation
+- anomaly detection
+- dashboard metrics
+
+Technology:
+Kafka
+Spring Boot
+Elasticsearch
+Kibana
+Two Real Production Examples
+Example 1 — Retail Log Monitoring
+Prompt
+Copy code
+
+/implementation
+
+Build a Spring Boot service that analyzes POS logs and produces
+hourly error summaries.
+
+Requirements:
+- group logs by hour
+- detect error spikes
+- expose REST endpoint for metrics
+Output
+Copy code
+
+POS → Kafka → LogAnalyzer → Redis → Monitoring Dashboard
+Example 2 — Market Data Pipeline
+Prompt
+Copy code
+
+/architecture
+
+Design real-time market data processing platform.
+
+Requirements:
+- ingest price feed
+- calculate aggregated metrics
+- store historical data
+Result
+Copy code
+
+Market Feed
+     ↓
+Kafka
+     ↓
+Spring Boot Processor
+     ↓
+Redis Cache
+     ↓
+PostgreSQL
+     ↓
+API Layer
+Best Prompt Rules
+Good prompt
+Copy code
+
+Implement Java service that processes Kafka events
+and aggregates metrics per hour using ConcurrentHashMap.
+Bad prompt
+Copy code
+
+write code for kafka
+If useful, I can also show the 25 most powerful prompts senior engineers use daily for
+Spring Boot microservices
+Kafka streaming
+Data engineering pipelines
+AI assisted development
+These prompts dramatically improve Copilot productivity.
