@@ -1,0 +1,195 @@
+What CHECKSUM Actually Does
+Checksum converts row data into a numeric hash value.
+SQL Server uses the values of columns to calculate a number.
+If any column value changes, the number usually changes.
+Two functions are involved:
+Plain text
+Copy code
+BINARY_CHECKSUM   → row level hash
+CHECKSUM_AGG      → combines hashes of all rows
+Step 1 — Row Level Calculation
+BINARY_CHECKSUM(*) takes all column values of a row and produces a number.
+Example table
+Plain text
+Copy code
+ID   NAME   AMOUNT
+1    A      100
+2    B      200
+Query:
+SQL
+Copy code
+SELECT ID, NAME, AMOUNT,
+BINARY_CHECKSUM(ID, NAME, AMOUNT) AS row_checksum
+FROM test_table
+Example output
+Plain text
+Copy code
+ID NAME AMOUNT row_checksum
+1  A    100    438291
+2  B    200    882173
+Every row has its own checksum number.
+Step 2 — Aggregate Checksum
+Now SQL aggregates all row checksums using:
+SQL
+Copy code
+CHECKSUM_AGG()
+Example:
+SQL
+Copy code
+SELECT CHECKSUM_AGG(BINARY_CHECKSUM(*))
+FROM test_table
+Example result
+Plain text
+Copy code
+82344192
+This single number represents all rows in the table.
+What Happens When Data Changes
+Example table
+Plain text
+Copy code
+ID NAME AMOUNT
+1  A    100
+2  B    200
+Row checksums:
+Plain text
+Copy code
+Row1 → 438291
+Row2 → 882173
+Table checksum:
+Plain text
+Copy code
+438291 + 882173 → aggregated hash → 82344192
+Now change one value:
+Plain text
+Copy code
+ID NAME AMOUNT
+1  A    100
+2  B    999
+Row checksum becomes:
+Plain text
+Copy code
+Row1 → 438291
+Row2 → 774112
+New aggregated checksum:
+Plain text
+Copy code
+438291 + 774112 → new hash → 99128233
+Checksum changed → data changed.
+Example With Your Migration Case
+Old table
+SQL
+Copy code
+SELECT CHECKSUM_AGG(BINARY_CHECKSUM(*))
+FROM dbo.cff_report
+Result
+Plain text
+Copy code
+893821132
+New table
+SQL
+Copy code
+SELECT CHECKSUM_AGG(BINARY_CHECKSUM(*))
+FROM dbo.cff_report_new
+Result
+Plain text
+Copy code
+893821132
+Checksums equal → data likely identical.
+How SQL Internally Calculates Checksum (Concept)
+SQL takes column values and applies a hash algorithm.
+Conceptually:
+Plain text
+Copy code
+checksum = hash(col1 + col2 + col3 + ...)
+Example row
+Plain text
+Copy code
+ID=1
+NAME='ABC'
+AMOUNT=100
+SQL internally converts values into binary form:
+Plain text
+Copy code
+1 → binary
+ABC → binary
+100 → binary
+Then applies hash logic → number.
+Partition Level Example (Your Table)
+Because your table uses report_date partitions, calculate checksum per partition.
+Old table:
+SQL
+Copy code
+SELECT
+report_date,
+CHECKSUM_AGG(BINARY_CHECKSUM(*)) AS checksum_val
+FROM dbo.cff_report
+GROUP BY report_date
+Result
+Plain text
+Copy code
+report_date   checksum
+2024-01-01    82392312
+2024-02-01    22341123
+New table:
+SQL
+Copy code
+SELECT
+report_date,
+CHECKSUM_AGG(BINARY_CHECKSUM(*)) AS checksum_val
+FROM dbo.cff_report_new
+GROUP BY report_date
+Both must match.
+Why This Works Fast
+Without checksum:
+Plain text
+Copy code
+compare 50 million rows
+Very expensive.
+Checksum comparison:
+Plain text
+Copy code
+compare 1 number
+Extremely fast.
+Important Limitation
+Checksum is not guaranteed 100% unique.
+Example rare case:
+Plain text
+Copy code
+Data A → checksum 1234
+Data B → checksum 1234
+This is called hash collision.
+Rare but possible.
+Production Validation Strategy
+For large migrations (50M rows):
+Plain text
+Copy code
+Step 1  Row count validation
+Step 2  Partition row count validation
+Step 3  Partition checksum validation
+Step 4  EXCEPT comparison
+This guarantees 100% validation.
+Simple Real-Life Analogy
+Think of checksum like a file hash.
+Example:
+Plain text
+Copy code
+file size = 2GB
+Instead of comparing entire file, compute:
+Plain text
+Copy code
+MD5 hash = 4ab39c2d
+After copy:
+Plain text
+Copy code
+MD5 hash = 4ab39c2d
+Files identical.
+Database checksum works the same way.
+If you want, I can also show something extremely useful for your exact scenario:
+A fully dynamic Azure SQL validation stored procedure that automatically:
+Plain text
+Copy code
+1 Detects table columns dynamically
+2 Calculates partition checksums
+3 Compares old and new tables
+4 Prints mismatch report
+This is the actual script senior DB engineers use for 100M+ row migrations.
