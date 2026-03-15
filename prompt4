@@ -1,0 +1,187 @@
+What CHECKSUM Means (Simple English)
+Checksum is a number calculated from data.
+Think of it like a fingerprint for the data.
+If the data changes even slightly, the checksum number usually changes.
+So when migrating tables, we compute a checksum for:
+Plain text
+Copy code
+old table data
+new table data
+If both checksums are equal, the data is very likely identical.
+Simple Example
+Table:
+Plain text
+Copy code
+ID  Amount
+1   100
+2   200
+3   300
+SQL calculates checksum:
+SQL
+Copy code
+SELECT CHECKSUM_AGG(BINARY_CHECKSUM(*)) FROM table
+Result:
+Plain text
+Copy code
+Checksum = 857321
+Now if data changes:
+Plain text
+Copy code
+ID  Amount
+1   100
+2   999
+3   300
+New checksum:
+Plain text
+Copy code
+Checksum = 442921
+Because the value changed, the checksum changed.
+Why We Use It for 50 Million Rows
+Comparing rows one by one is expensive.
+Example:
+Plain text
+Copy code
+Old table: 50,000,000 rows
+New table: 50,000,000 rows
+Full comparison:
+Plain text
+Copy code
+50M vs 50M rows
+Very slow.
+Checksum comparison:
+Plain text
+Copy code
+1 number vs 1 number
+Very fast.
+SQL Used in Azure SQL
+Compute checksum for old table.
+SQL
+Copy code
+SELECT CHECKSUM_AGG(BINARY_CHECKSUM(*))
+FROM dbo.cff_report
+Compute checksum for new table.
+SQL
+Copy code
+SELECT CHECKSUM_AGG(BINARY_CHECKSUM(*))
+FROM dbo.cff_report_new
+Example result:
+Plain text
+Copy code
+Old table checksum  = 892341234
+New table checksum  = 892341234
+Meaning data is very likely identical.
+Partition Level Checksum (Best Practice)
+Since your table is partitioned by report_date, validate per partition.
+Old table:
+SQL
+Copy code
+SELECT
+report_date,
+CHECKSUM_AGG(BINARY_CHECKSUM(*)) checksum_value
+FROM dbo.cff_report
+GROUP BY report_date
+New table:
+SQL
+Copy code
+SELECT
+report_date,
+CHECKSUM_AGG(BINARY_CHECKSUM(*)) checksum_value
+FROM dbo.cff_report_new
+GROUP BY report_date
+Example output
+Plain text
+Copy code
+report_date   checksum
+2024-01-01    8932121
+2024-02-01    9812231
+Both tables must match.
+Why BINARY_CHECKSUM is Used
+BINARY_CHECKSUM calculates checksum row by row.
+Example:
+SQL
+Copy code
+SELECT BINARY_CHECKSUM(*)
+FROM dbo.cff_report
+Result:
+Plain text
+Copy code
+Row1 → 1231
+Row2 → 8912
+Row3 → 3321
+Then
+SQL
+Copy code
+CHECKSUM_AGG
+combines them into one number.
+Simple Real-Life Analogy
+Imagine 3 files:
+Plain text
+Copy code
+file1.txt
+file2.txt
+file3.txt
+You generate a hash value:
+Plain text
+Copy code
+hash = 8f2c9a1
+After copying files, you generate hash again.
+If:
+Plain text
+Copy code
+hash = 8f2c9a1
+Files are identical.
+Checksum works the same way for tables.
+Important Limitation
+Checksum can rarely collide.
+Example:
+Plain text
+Copy code
+Different data → Same checksum
+Very rare but possible.
+That is why production migrations use:
+Plain text
+Copy code
+1 Row count
+2 Checksum
+3 EXCEPT validation
+All three.
+Example Production Validation Flow
+For your 50M row table.
+Step 1
+SQL
+Copy code
+SELECT COUNT(*) FROM cff_report
+Step 2
+SQL
+Copy code
+SELECT COUNT(*) FROM cff_report_new
+Step 3
+SQL
+Copy code
+CHECKSUM_AGG(BINARY_CHECKSUM(*))
+Step 4
+SQL
+Copy code
+EXCEPT validation
+Only then swap tables.
+Example From Real Reporting System
+Financial reporting table.
+Plain text
+Copy code
+table size
+48 million rows
+Validation:
+Plain text
+Copy code
+Row count match
+Checksum match
+EXCEPT returns 0 rows
+Migration confirmed safe.
+If you want, I can also show a production-grade validation script used for 100M+ tables that automatically:
+Plain text
+Copy code
+1 detects partitions
+2 computes checksum per partition
+3 runs EXCEPT validation
+4 prints mismatch report
+Very useful for Azure SQL large table migrations.
