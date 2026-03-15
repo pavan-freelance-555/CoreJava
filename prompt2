@@ -1,0 +1,229 @@
+Row count validation is not sufficient. For production migrations you must validate:
+Plain text
+Copy code
+1 Row count
+2 Column checksum
+3 Data difference
+4 Partition distribution
+Below are best approaches used in Azure SQL migrations.
+1. Row Count Validation
+Basic verification.
+SQL
+Copy code
+SELECT COUNT(*) FROM dbo.cff_report
+SELECT COUNT(*) FROM dbo.cff_report_new
+But this does not guarantee data integrity.
+Example problem:
+Plain text
+Copy code
+Old table
+ID  Amount
+1   100
+2   200
+
+New table
+ID  Amount
+1   100
+2   999
+Row count is same but data changed.
+2. Using EXCEPT (Best Simple Validation)
+EXCEPT returns rows that exist in one table but not the other.
+Check missing rows:
+SQL
+Copy code
+SELECT * 
+FROM dbo.cff_report
+
+EXCEPT
+
+SELECT *
+FROM dbo.cff_report_new
+Check extra rows:
+SQL
+Copy code
+SELECT * 
+FROM dbo.cff_report_new
+
+EXCEPT
+
+SELECT *
+FROM dbo.cff_report
+If both queries return 0 rows, data is identical.
+Example
+Old table
+Plain text
+Copy code
+ID  VALUE
+1   A
+2   B
+New table
+Plain text
+Copy code
+ID  VALUE
+1   A
+2   C
+Query result:
+Plain text
+Copy code
+ID VALUE
+2  B
+Mismatch detected.
+3. Partition Level Validation (Very Important)
+Since your table is partitioned on report_date, validate partition data.
+Example:
+SQL
+Copy code
+SELECT report_date, COUNT(*) 
+FROM dbo.cff_report
+GROUP BY report_date
+ORDER BY report_date
+Compare with:
+SQL
+Copy code
+SELECT report_date, COUNT(*) 
+FROM dbo.cff_report_new
+GROUP BY report_date
+ORDER BY report_date
+This ensures each partition copied correctly.
+4. Using CHECKSUM (Fast Validation)
+For very large tables like 50M rows, EXCEPT may be expensive.
+Use CHECKSUM aggregation.
+Old table:
+SQL
+Copy code
+SELECT CHECKSUM_AGG(BINARY_CHECKSUM(*))
+FROM dbo.cff_report
+New table:
+SQL
+Copy code
+SELECT CHECKSUM_AGG(BINARY_CHECKSUM(*))
+FROM dbo.cff_report_new
+If checksum values match, data is very likely identical.
+Example:
+Plain text
+Copy code
+Old checksum = 23892783
+New checksum = 23892783
+5. Partition Checksum (Best for Large Tables)
+Validate partition by partition.
+SQL
+Copy code
+SELECT 
+report_date,
+COUNT(*) row_count,
+CHECKSUM_AGG(BINARY_CHECKSUM(*)) checksum_val
+FROM dbo.cff_report
+GROUP BY report_date
+Compare with new table:
+SQL
+Copy code
+SELECT 
+report_date,
+COUNT(*) row_count,
+CHECKSUM_AGG(BINARY_CHECKSUM(*)) checksum_val
+FROM dbo.cff_report_new
+GROUP BY report_date
+This gives very strong validation.
+6. Detect Exact Row Differences
+Best query to find exact mismatch.
+SQL
+Copy code
+SELECT *
+FROM dbo.cff_report o
+FULL OUTER JOIN dbo.cff_report_new n
+ON o.primary_key = n.primary_key
+WHERE
+o.primary_key IS NULL
+OR n.primary_key IS NULL
+OR EXISTS
+(
+SELECT o.*
+EXCEPT
+SELECT n.*
+)
+This shows rows where data changed.
+Recommended Production Validation Strategy
+For 50M row migration use this order.
+Step 1
+SQL
+Copy code
+COUNT validation
+Step 2
+SQL
+Copy code
+Partition row counts
+Step 3
+SQL
+Copy code
+Partition checksum
+Step 4
+SQL
+Copy code
+EXCEPT validation
+Real Production Example
+Example migration of financial report table.
+Plain text
+Copy code
+Table size
+52 million rows
+Validation pipeline:
+Plain text
+Copy code
+1 Row count
+2 Partition counts
+3 Partition checksums
+4 EXCEPT query
+Result:
+Plain text
+Copy code
+0 mismatches found
+Migration approved.
+Performance Tip for EXCEPT
+Instead of full table comparison:
+Compare partition by partition.
+Example:
+SQL
+Copy code
+SELECT *
+FROM dbo.cff_report
+WHERE report_date='2025-01-01'
+
+EXCEPT
+
+SELECT *
+FROM dbo.cff_report_new
+WHERE report_date='2025-01-01'
+Much faster.
+Final Recommended Query (Production)
+SQL
+Copy code
+SELECT *
+FROM dbo.cff_report
+
+EXCEPT
+
+SELECT *
+FROM dbo.cff_report_new
+
+UNION ALL
+
+SELECT *
+FROM dbo.cff_report_new
+
+EXCEPT
+
+SELECT *
+FROM dbo.cff_report
+If result =
+Plain text
+Copy code
+0 rows
+Data is 100% identical.
+If useful, I can also show a fully automated dynamic validation script that:
+Plain text
+Copy code
+1 Reads column list dynamically
+2 Builds EXCEPT query automatically
+3 Validates partition by partition
+4 Prints mismatch summary
+This is the actual migration validation script used by senior DB engineers for very large tables.
