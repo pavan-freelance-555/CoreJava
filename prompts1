@@ -1,0 +1,253 @@
+Below is a production-safe migration plan for Azure SQL to move 50M rows from an existing partitioned table to a new table, recreate all partitions and indexes dynamically, copy data in batches, then swap tables.
+This approach avoids long blocking operations and works well for large financial/reporting tables.
+Assume:
+Plain text
+Copy code
+Old table: dbo.cff_report
+Partition column: report_date
+New table: dbo.cff_report_new
+Goal:
+Plain text
+Copy code
+1 Create new table with same structure
+2 Reuse existing partition function and scheme
+3 Copy data in batches
+4 Recreate indexes dynamically
+5 Validate row counts
+6 Swap tables
+Step 1 — Identify Existing Partition Metadata
+Get partition function and scheme used by the old table.
+SQL
+Copy code
+SELECT 
+    t.name AS table_name,
+    i.name AS index_name,
+    ps.name AS partition_scheme,
+    pf.name AS partition_function,
+    c.name AS partition_column
+FROM sys.tables t
+JOIN sys.indexes i 
+    ON t.object_id = i.object_id
+JOIN sys.partition_schemes ps 
+    ON i.data_space_id = ps.data_space_id
+JOIN sys.partition_functions pf 
+    ON ps.function_id = pf.function_id
+JOIN sys.index_columns ic
+    ON i.object_id = ic.object_id 
+    AND i.index_id = ic.index_id
+JOIN sys.columns c
+    ON ic.object_id = c.object_id
+    AND ic.column_id = c.column_id
+WHERE t.name = 'cff_report'
+AND ic.partition_ordinal = 1;
+This returns:
+Plain text
+Copy code
+partition_function
+partition_scheme
+partition_column
+Step 2 — Generate CREATE TABLE Script Dynamically
+Create same table structure without copying data.
+SQL
+Copy code
+DECLARE @sql NVARCHAR(MAX)
+
+SELECT @sql = 'SELECT TOP 0 * INTO dbo.cff_report_new FROM dbo.cff_report'
+
+EXEC sp_executesql @sql
+This creates the table structure.
+But partitions must be applied manually.
+Step 3 — Apply Partition Scheme to New Table
+First find the partition scheme.
+SQL
+Copy code
+SELECT ps.name
+FROM sys.partition_schemes ps
+JOIN sys.indexes i
+ON ps.data_space_id = i.data_space_id
+JOIN sys.tables t
+ON i.object_id = t.object_id
+WHERE t.name = 'cff_report'
+AND i.index_id <= 1
+Then rebuild clustered index on partition scheme.
+Example dynamic script:
+SQL
+Copy code
+DECLARE @sql NVARCHAR(MAX)
+
+SELECT @sql =
+'CREATE CLUSTERED INDEX CX_cff_report_new 
+ON dbo.cff_report_new(report_date)
+ON ' + ps.name + '(report_date)'
+FROM sys.partition_schemes ps
+JOIN sys.indexes i
+ON ps.data_space_id = i.data_space_id
+JOIN sys.tables t
+ON i.object_id = t.object_id
+WHERE t.name = 'cff_report'
+AND i.index_id = 1
+
+EXEC sp_executesql @sql
+Now new table is partitioned.
+Step 4 — Dynamically Generate Index Scripts
+Copy all indexes from the old table.
+SQL
+Copy code
+SELECT 
+'CREATE ' +
+CASE WHEN i.is_unique = 1 THEN 'UNIQUE ' ELSE '' END +
+i.type_desc + ' INDEX ' + i.name + '_new ON dbo.cff_report_new (' +
+STRING_AGG(c.name, ',') + ')'
+FROM sys.indexes i
+JOIN sys.index_columns ic 
+ON i.object_id = ic.object_id 
+AND i.index_id = ic.index_id
+JOIN sys.columns c
+ON ic.object_id = c.object_id
+AND ic.column_id = c.column_id
+JOIN sys.tables t
+ON t.object_id = i.object_id
+WHERE t.name = 'cff_report'
+AND i.index_id > 1
+GROUP BY i.name, i.type_desc, i.is_unique
+Save these scripts and run after data load.
+Reason:
+Plain text
+Copy code
+Indexes slow down bulk inserts
+Step 5 — Batch Data Copy (Critical for 50M rows)
+Batching prevents transaction log growth.
+Dynamic batch copy script:
+SQL
+Copy code
+DECLARE @BatchSize INT = 50000
+DECLARE @Rows INT = 1
+
+WHILE @Rows > 0
+BEGIN
+
+INSERT INTO dbo.cff_report_new
+SELECT TOP (@BatchSize) *
+FROM dbo.cff_report
+WHERE report_date NOT IN (
+    SELECT report_date FROM dbo.cff_report_new
+)
+
+SET @Rows = @@ROWCOUNT
+
+END
+Better approach using key range.
+Example:
+SQL
+Copy code
+DECLARE @StartDate DATE
+DECLARE @EndDate DATE
+
+SELECT @StartDate = MIN(report_date),
+       @EndDate = MAX(report_date)
+FROM dbo.cff_report
+
+WHILE @StartDate <= @EndDate
+BEGIN
+
+INSERT INTO dbo.cff_report_new
+SELECT *
+FROM dbo.cff_report
+WHERE report_date >= @StartDate
+AND report_date < DATEADD(DAY,1,@StartDate)
+
+SET @StartDate = DATEADD(DAY,1,@StartDate)
+
+END
+This copies partition by partition.
+Much faster.
+Step 6 — Recreate Indexes on New Table
+Execute dynamically generated index scripts.
+Example:
+SQL
+Copy code
+CREATE NONCLUSTERED INDEX IX_cff_report_new_1
+ON dbo.cff_report_new(col1, col2)
+Step 7 — Validate Data
+Check row counts.
+SQL
+Copy code
+SELECT 
+(SELECT COUNT(*) FROM dbo.cff_report) AS old_count,
+(SELECT COUNT(*) FROM dbo.cff_report_new) AS new_count
+Check partitions.
+SQL
+Copy code
+SELECT 
+partition_number,
+rows
+FROM sys.partitions
+WHERE object_id = OBJECT_ID('dbo.cff_report_new')
+AND index_id <= 1
+Step 8 — Rename Tables (Minimal Downtime)
+Transaction swap.
+SQL
+Copy code
+BEGIN TRAN
+
+EXEC sp_rename 'dbo.cff_report', 'cff_report_old'
+
+EXEC sp_rename 'dbo.cff_report_new', 'cff_report'
+
+COMMIT
+Rollback option exists.
+Step 9 — Drop Old Table After Verification
+SQL
+Copy code
+DROP TABLE dbo.cff_report_old
+Final Migration Architecture
+Plain text
+Copy code
+Old Table (50M rows)
+       │
+       │
+Create Empty Partitioned Table
+       │
+       │
+Batch Copy (Partition Wise)
+       │
+       │
+Create Indexes
+       │
+       │
+Validate Counts
+       │
+       │
+Rename Tables
+Performance Best Practices
+For large tables:
+Plain text
+Copy code
+1 Copy partition by partition
+2 Disable indexes before load
+3 Use batch size 50k–100k
+4 Monitor transaction log
+5 Run during low traffic window
+Example Real Production Case
+Example from reporting systems:
+Plain text
+Copy code
+cff_report
+50M rows
+monthly partitions
+Migration steps:
+Plain text
+Copy code
+create cff_report_new
+copy Jan partition
+copy Feb partition
+copy Mar partition
+recreate indexes
+swap tables
+Downtime:
+Plain text
+Copy code
+< 30 seconds
+If useful, I can also show a much more advanced production approach used in banks and trading systems:
+Partition switching (instant data move)
+It moves millions of rows in seconds without copying data. This is the fastest Azure SQL technique for partitioned tables.
