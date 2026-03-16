@@ -1,0 +1,66 @@
+DECLARE @partitionColumn SYSNAME
+DECLARE @boundaries NVARCHAR(MAX)
+DECLARE @sql NVARCHAR(MAX)
+DECLARE @pf_sql NVARCHAR(MAX)
+DECLARE @ps_sql NVARCHAR(MAX)
+
+--------------------------------------------------
+-- Step 1 Identify partition column dynamically
+--------------------------------------------------
+
+SELECT @partitionColumn = c.name
+FROM sys.tables t
+JOIN sys.indexes i
+    ON t.object_id = i.object_id
+JOIN sys.index_columns ic
+    ON i.object_id = ic.object_id
+    AND i.index_id = ic.index_id
+JOIN sys.columns c
+    ON ic.object_id = c.object_id
+    AND ic.column_id = c.column_id
+WHERE t.name = 'cff_report'
+AND ic.partition_ordinal = 1
+
+--------------------------------------------------
+-- Step 2 Generate partition boundaries dynamically
+--------------------------------------------------
+
+SET @sql = '
+SELECT @b = STRING_AGG(''''' + CONVERT(VARCHAR(30),' 
++ QUOTENAME(@partitionColumn) + ') + ''''' , '','')
+FROM
+(
+    SELECT DISTINCT ' + QUOTENAME(@partitionColumn) + '
+    FROM dbo.cff_report
+) x
+'
+
+EXEC sp_executesql
+@sql,
+N'@b NVARCHAR(MAX) OUTPUT',
+@b=@boundaries OUTPUT
+
+--------------------------------------------------
+-- Step 3 Create partition function
+--------------------------------------------------
+
+SET @pf_sql = '
+CREATE PARTITION FUNCTION pf_cff_report_new (DATE)
+AS RANGE RIGHT FOR VALUES (' + @boundaries + ')
+'
+
+PRINT @pf_sql
+EXEC (@pf_sql)
+
+--------------------------------------------------
+-- Step 4 Create partition scheme
+--------------------------------------------------
+
+SET @ps_sql = '
+CREATE PARTITION SCHEME ps_cff_report_new
+AS PARTITION pf_cff_report_new
+ALL TO ([PRIMARY])
+'
+
+PRINT @ps_sql
+EXEC (@ps_sql)
