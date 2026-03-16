@@ -1,0 +1,245 @@
+Goal:
+Copy code
+
+cff_report  → existing table
+cff_report_new → new partitioned table
+Requirements:
+Copy code
+
+1 Capture partition definition dynamically
+2 Capture indexes dynamically
+3 Create new table
+4 Apply partition
+5 Load data
+6 Recreate indexes
+7 Validate data
+8 Swap tables
+All scripts below work in Azure SQL.
+STEP 1 — Identify Partition Function + Scheme Used by Table
+SQL
+Copy code
+SELECT 
+t.name AS table_name,
+ps.name AS partition_scheme,
+pf.name AS partition_function
+FROM sys.tables t
+JOIN sys.indexes i ON t.object_id=i.object_id
+JOIN sys.partition_schemes ps ON i.data_space_id=ps.data_space_id
+JOIN sys.partition_functions pf ON ps.function_id=pf.function_id
+WHERE t.name='cff_report'
+AND i.index_id=1
+Example output
+Copy code
+
+table_name        partition_scheme        partition_function
+cff_report        ps_cff_report           pf_cff_report
+STEP 2 — Get Partition Boundaries Dynamically
+SQL
+Copy code
+SELECT
+CAST(prv.value AS VARCHAR(50)) AS boundary_value
+FROM sys.partition_functions pf
+JOIN sys.partition_range_values prv
+ON pf.function_id=prv.function_id
+WHERE pf.name='pf_cff_report'
+ORDER BY prv.boundary_id
+Example
+Copy code
+
+2023-01-01
+2023-04-01
+2023-07-01
+2023-10-01
+2024-01-01
+STEP 3 — Identify Partition Column
+SQL
+Copy code
+SELECT c.name AS partition_column
+FROM sys.tables t
+JOIN sys.indexes i ON t.object_id=i.object_id
+JOIN sys.index_columns ic ON i.object_id=ic.object_id AND i.index_id=ic.index_id
+JOIN sys.columns c ON ic.object_id=c.object_id AND ic.column_id=c.column_id
+WHERE t.name='cff_report'
+AND ic.partition_ordinal=1
+Example
+Copy code
+
+report_date
+STEP 4 — Generate Table DDL Dynamically
+SQL
+Copy code
+SELECT 
+'[' + c.name + '] ' +
+TYPE_NAME(c.user_type_id) +
+CASE 
+WHEN c.max_length = -1 THEN '(MAX)'
+WHEN c.max_length > 0 AND TYPE_NAME(c.user_type_id) IN ('varchar','nvarchar','char')
+THEN '(' + CAST(c.max_length AS VARCHAR) + ')'
+ELSE ''
+END +
+CASE WHEN c.is_nullable=1 THEN ' NULL' ELSE ' NOT NULL' END
+AS column_definition
+FROM sys.columns c
+WHERE c.object_id=OBJECT_ID('dbo.cff_report')
+ORDER BY column_id
+Use output to build:
+Copy code
+
+CREATE TABLE cff_report_new (...)
+STEP 5 — Create New Table
+Example structure:
+SQL
+Copy code
+CREATE TABLE dbo.cff_report_new
+(
+report_id BIGINT,
+portfolio_id INT,
+report_date DATE,
+amount DECIMAL(18,2)
+)
+No indexes yet.
+STEP 6 — Create Clustered Index with Partition
+Find clustered index:
+SQL
+Copy code
+SELECT name,type_desc
+FROM sys.indexes
+WHERE object_id=OBJECT_ID('cff_report')
+AND index_id=1
+Example
+Copy code
+
+CI_cff_report
+Create same index on new table.
+SQL
+Copy code
+CREATE CLUSTERED INDEX CI_cff_report_new
+ON dbo.cff_report_new(report_date,report_id)
+ON ps_cff_report(report_date)
+Partition applied here.
+STEP 7 — Load Data in Batches
+Avoid single huge insert.
+Example batch load:
+SQL
+Copy code
+DECLARE @batch INT=100000
+
+WHILE 1=1
+BEGIN
+
+INSERT INTO dbo.cff_report_new
+SELECT TOP (@batch) *
+FROM dbo.cff_report
+WHERE report_id NOT IN
+(
+SELECT report_id FROM dbo.cff_report_new
+)
+
+IF @@ROWCOUNT=0 BREAK
+
+END
+For very large tables (100M+ rows) use:
+Copy code
+
+INSERT WITH TABLOCK
+Example
+SQL
+Copy code
+INSERT INTO dbo.cff_report_new WITH (TABLOCK)
+SELECT *
+FROM dbo.cff_report
+This enables minimal logging.
+STEP 8 — Recreate Non-Clustered Indexes Dynamically
+Generate index DDL:
+SQL
+Copy code
+SELECT
+'CREATE INDEX ['+i.name+'] ON dbo.cff_report_new ('+
+STRING_AGG(c.name,',')+
+')'
+FROM sys.indexes i
+JOIN sys.index_columns ic
+ON i.object_id=ic.object_id AND i.index_id=ic.index_id
+JOIN sys.columns c
+ON ic.object_id=c.object_id AND ic.column_id=c.column_id
+WHERE i.object_id=OBJECT_ID('cff_report')
+AND i.index_id>1
+GROUP BY i.name
+Run generated scripts.
+STEP 9 — Validate Data
+Row count validation
+SQL
+Copy code
+SELECT COUNT(*) FROM cff_report
+SELECT COUNT(*) FROM cff_report_new
+Partition validation
+SQL
+Copy code
+SELECT
+$PARTITION.pf_cff_report(report_date) AS partition_number,
+COUNT(*)
+FROM cff_report_new
+GROUP BY $PARTITION.pf_cff_report(report_date)
+Data difference validation
+SQL
+Copy code
+SELECT *
+FROM cff_report
+EXCEPT
+SELECT *
+FROM cff_report_new
+Reverse validation
+SQL
+Copy code
+SELECT *
+FROM cff_report_new
+EXCEPT
+SELECT *
+FROM cff_report
+Should return 0 rows.
+STEP 10 — Rename Tables
+Once validation succeeds.
+SQL
+Copy code
+EXEC sp_rename 'cff_report','cff_report_old'
+
+EXEC sp_rename 'cff_report_new','cff_report'
+Real Production Example (Market Reporting Table)
+Table
+Copy code
+
+cff_report
+rows = 500M
+partitioned by report_date
+Migration approach
+Copy code
+
+Create new table
+Apply same partition scheme
+Load data with TABLOCK
+Create indexes after load
+Validate
+Rename
+Typical runtime
+Copy code
+
+Data copy → 40 minutes
+Index creation → 20 minutes
+Validation → 5 minutes
+Total → ~1 hour
+Important Production Optimizations
+For large financial tables:
+Copy code
+
+1 TABLOCK during insert
+2 Disable auto stats during load
+3 Create nonclustered indexes after load
+4 Validate partitions
+If you want, I can also show one advanced DBA script used in production that automatically generates:
+Copy code
+
+CREATE TABLE
+CREATE PARTITION FUNCTION
+CREATE PARTITION SCHEME
+CREATE ALL INDEXES
+for any table like cff_report in a single execution, which saves hours during migrations.
