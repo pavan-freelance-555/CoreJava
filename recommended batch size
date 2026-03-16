@@ -1,0 +1,3 @@
+Small table (<10M rows)      → 50k
+Medium table (10M–200M)      → 100k
+Huge table (>200M)           → 250k–500k
