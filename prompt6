@@ -1,0 +1,199 @@
+Partition definition in SQL Server/Azure SQL exists in three objects:
+Copy code
+
+Partition Function
+Partition Scheme
+Table / Index using the scheme
+To recreate the partitioning for cff_report, you must extract:
+Copy code
+
+1 Partition function
+2 Partition boundaries
+3 Partition scheme
+4 Table index using scheme
+Below are queries used by DB engineers to generate the scripts dynamically.
+1 Get Partition Function Script
+This shows the partition function name and boundary values.
+SQL
+Copy code
+SELECT
+pf.name AS partition_function,
+pf.type_desc,
+prv.value AS boundary_value
+FROM sys.partition_functions pf
+JOIN sys.partition_range_values prv
+ON pf.function_id = prv.function_id
+WHERE pf.name IN
+(
+SELECT pf.name
+FROM sys.tables t
+JOIN sys.indexes i ON t.object_id = i.object_id
+JOIN sys.partition_schemes ps ON i.data_space_id = ps.data_space_id
+JOIN sys.partition_functions pf ON ps.function_id = pf.function_id
+WHERE t.name = 'cff_report'
+)
+ORDER BY boundary_value
+Example output
+Copy code
+
+pf_cff_report
+2023-01-01
+2023-04-01
+2023-07-01
+2023-10-01
+2024-01-01
+Script to recreate it:
+SQL
+Copy code
+CREATE PARTITION FUNCTION pf_cff_report (DATE)
+AS RANGE RIGHT FOR VALUES
+(
+'2023-01-01',
+'2023-04-01',
+'2023-07-01',
+'2023-10-01',
+'2024-01-01'
+)
+2 Get Partition Scheme Script
+Partition scheme maps function → filegroups.
+Query:
+SQL
+Copy code
+SELECT
+ps.name AS partition_scheme,
+pf.name AS partition_function,
+ds.name AS filegroup_name
+FROM sys.partition_schemes ps
+JOIN sys.partition_functions pf
+ON ps.function_id = pf.function_id
+JOIN sys.destination_data_spaces dds
+ON ps.data_space_id = dds.partition_scheme_id
+JOIN sys.data_spaces ds
+ON dds.data_space_id = ds.data_space_id
+WHERE ps.name IN
+(
+SELECT ps.name
+FROM sys.tables t
+JOIN sys.indexes i ON t.object_id = i.object_id
+JOIN sys.partition_schemes ps ON i.data_space_id = ps.data_space_id
+WHERE t.name = 'cff_report'
+)
+Example script
+SQL
+Copy code
+CREATE PARTITION SCHEME ps_cff_report
+AS PARTITION pf_cff_report
+ALL TO ([PRIMARY])
+3 Identify Partition Column
+Find which column the table is partitioned on.
+SQL
+Copy code
+SELECT
+t.name AS table_name,
+c.name AS partition_column
+FROM sys.tables t
+JOIN sys.indexes i
+ON t.object_id = i.object_id
+JOIN sys.index_columns ic
+ON i.object_id = ic.object_id
+AND i.index_id = ic.index_id
+JOIN sys.columns c
+ON ic.object_id = c.object_id
+AND ic.column_id = c.column_id
+WHERE t.name = 'cff_report'
+AND ic.partition_ordinal = 1
+Example result
+Copy code
+
+table_name       partition_column
+cff_report       report_date
+4 Check Partitions and Row Distribution
+This shows how many rows exist per partition.
+SQL
+Copy code
+SELECT
+p.partition_number,
+p.rows
+FROM sys.partitions p
+JOIN sys.tables t
+ON p.object_id = t.object_id
+WHERE t.name = 'cff_report'
+AND p.index_id IN (0,1)
+ORDER BY partition_number
+Example output
+Copy code
+
+partition  rows
+1          10M
+2          12M
+3          11M
+4          15M
+Useful for validating data migration later.
+5 Generate Complete Partition Script Automatically
+This script generates partition function boundaries.
+SQL
+Copy code
+SELECT
+STRING_AGG(
+'''' + CAST(value AS VARCHAR(50)) + '''',
+','
+) AS partition_boundaries
+FROM sys.partition_range_values
+WHERE function_id =
+(
+SELECT pf.function_id
+FROM sys.partition_functions pf
+JOIN sys.partition_schemes ps
+ON pf.function_id = ps.function_id
+JOIN sys.indexes i
+ON ps.data_space_id = i.data_space_id
+WHERE i.object_id = OBJECT_ID('dbo.cff_report')
+AND i.index_id = 1
+)
+Example output
+Copy code
+
+'2023-01-01','2023-04-01','2023-07-01','2023-10-01','2024-01-01'
+Example Real System (Financial Reporting Table)
+Table
+Copy code
+
+cff_report
+rows = 700M
+Partitioned by
+Copy code
+
+report_date
+Boundaries
+Copy code
+
+quarterly partitions
+Copy code
+
+2023-01-01
+2023-04-01
+2023-07-01
+2023-10-01
+2024-01-01
+Using the queries above you can extract:
+Copy code
+
+partition function
+partition scheme
+partition column
+partition distribution
+This allows you to recreate the same partition setup for cff_report_new.
+Fast Way (SSMS GUI)
+If you have SSMS access:
+Copy code
+
+Right click table
+Script Table As
+CREATE
+This automatically includes
+Copy code
+
+partition scheme
+clustered index
+partition column
+If you want, I can also show a single query used by DB engineers that generates the entire partition function + scheme script automatically from an existing table, so you can recreate it without manually copying boundaries.
