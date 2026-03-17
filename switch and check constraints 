@@ -1,0 +1,125 @@
+SET NOCOUNT ON;
+
+DECLARE 
+    @source_table SYSNAME = 'dbo.cff_report',
+    @stage_table SYSNAME = 'dbo.cff_report_stage',
+    @target_table SYSNAME = 'dbo.cff_report_partitioned',
+    @partition_function SYSNAME = 'pf_report_date',
+    @partition_column SYSNAME = 'report_date',
+    @partition_date DATE,
+    @sql NVARCHAR(MAX),
+    @partition_number INT;
+
+------------------------------------------------------------
+-- CURSOR: Get distinct partition values dynamically
+------------------------------------------------------------
+DECLARE partition_cursor CURSOR FOR
+SELECT DISTINCT CAST(report_date AS DATE)
+FROM dbo.cff_report
+ORDER BY 1;
+
+OPEN partition_cursor;
+FETCH NEXT FROM partition_cursor INTO @partition_date;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    PRINT '=========================================';
+    PRINT 'Processing Date: ' + CAST(@partition_date AS VARCHAR);
+
+    ------------------------------------------------------------
+    -- STEP 1: TRUNCATE stage
+    ------------------------------------------------------------
+    SET @sql = 'TRUNCATE TABLE ' + @stage_table;
+    EXEC(@sql);
+
+    ------------------------------------------------------------
+    -- STEP 2: LOAD ONLY ONE PARTITION
+    ------------------------------------------------------------
+    SET @sql = '
+        INSERT INTO ' + @stage_table + '
+        SELECT *
+        FROM ' + @source_table + '
+        WHERE CAST(' + @partition_column + ' AS DATE) = @dt';
+
+    EXEC sp_executesql 
+        @sql,
+        N'@dt DATE',
+        @dt = @partition_date;
+
+    ------------------------------------------------------------
+    -- STEP 3: VALIDATION (STRICT)
+    ------------------------------------------------------------
+    IF (SELECT COUNT(*) FROM dbo.cff_report_stage) = 0
+    BEGIN
+        PRINT 'No data for date. Skipping...';
+        GOTO NEXT_LOOP;
+    END
+
+    IF (
+        SELECT COUNT(DISTINCT CAST(report_date AS DATE)) 
+        FROM dbo.cff_report_stage
+    ) > 1
+    BEGIN
+        THROW 50000, 'Stage table has multiple partition values. Aborting.', 1;
+    END
+
+    ------------------------------------------------------------
+    -- STEP 4: DROP OLD CHECK CONSTRAINT
+    ------------------------------------------------------------
+    IF EXISTS (
+        SELECT 1 
+        FROM sys.check_constraints 
+        WHERE name = 'chk_stage_partition'
+    )
+    BEGIN
+        ALTER TABLE dbo.cff_report_stage 
+        DROP CONSTRAINT chk_stage_partition;
+    END
+
+    ------------------------------------------------------------
+    -- STEP 5: CREATE DYNAMIC CHECK CONSTRAINT
+    ------------------------------------------------------------
+    SET @sql = '
+    ALTER TABLE ' + @stage_table + '
+    ADD CONSTRAINT chk_stage_partition
+    CHECK (
+        ' + @partition_column + ' >= ''' + CONVERT(VARCHAR(10), @partition_date, 120) + '''
+        AND ' + @partition_column + ' < DATEADD(DAY, 1, ''' + CONVERT(VARCHAR(10), @partition_date, 120) + ''')
+    )';
+
+    PRINT @sql;
+    EXEC(@sql);
+
+    ------------------------------------------------------------
+    -- STEP 6: GET PARTITION NUMBER
+    ------------------------------------------------------------
+    SET @sql = '
+        SELECT @p = $PARTITION.' + @partition_function + '(@dt)';
+
+    EXEC sp_executesql 
+        @sql,
+        N'@dt DATE, @p INT OUTPUT',
+        @dt = @partition_date,
+        @p = @partition_number OUTPUT;
+
+    PRINT 'Target Partition: ' + CAST(@partition_number AS VARCHAR);
+
+    ------------------------------------------------------------
+    -- STEP 7: SWITCH
+    ------------------------------------------------------------
+    SET @sql = '
+        ALTER TABLE ' + @stage_table + '
+        SWITCH TO ' + @target_table + ' PARTITION ' + CAST(@partition_number AS VARCHAR);
+
+    PRINT @sql;
+    EXEC(@sql);
+
+    PRINT 'SWITCH SUCCESS FOR DATE: ' + CAST(@partition_date AS VARCHAR);
+
+    ------------------------------------------------------------
+    NEXT_LOOP:
+    FETCH NEXT FROM partition_cursor INTO @partition_date;
+END
+
+CLOSE partition_cursor;
+DEALLOCATE partition_cursor;
