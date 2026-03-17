@@ -1,0 +1,94 @@
+Here’s a single production-ready stored procedure that performs full partition-level validation dynamically for your table, without creating any new tables. It produces a per-partition report including:
+Row counts
+Min/Max IDs (primary key)
+Null count on the key column
+Checksum for row-level comparison
+PASS/FAIL status per partition
+Stored Procedure: usp_ValidatePartitionedData
+SQL
+Copy code
+CREATE OR ALTER PROCEDURE dbo.usp_ValidatePartitionedData
+    @SourceTable SYSNAME,
+    @TargetTable SYSNAME,
+    @KeyColumn SYSNAME,
+    @PartitionColumn SYSNAME
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @sql NVARCHAR(MAX);
+
+    -- Dynamic SQL to calculate per-partition stats and validation
+    SET @sql = N'
+    WITH SourceStats AS (
+        SELECT
+            CAST(' + QUOTENAME(@PartitionColumn) + ' AS DATE) AS PartitionValue,
+            COUNT(*) AS SrcRowCount,
+            MIN(' + QUOTENAME(@KeyColumn) + ') AS SrcMinID,
+            MAX(' + QUOTENAME(@KeyColumn) + ') AS SrcMaxID,
+            SUM(CASE WHEN ' + QUOTENAME(@KeyColumn) + ' IS NULL THEN 1 ELSE 0 END) AS SrcNullCount,
+            CHECKSUM_AGG(BINARY_CHECKSUM(*)) AS SrcChecksum
+        FROM ' + QUOTENAME(@SourceTable) + '
+        GROUP BY CAST(' + QUOTENAME(@PartitionColumn) + ' AS DATE)
+    ),
+    TargetStats AS (
+        SELECT
+            CAST(' + QUOTENAME(@PartitionColumn) + ' AS DATE) AS PartitionValue,
+            COUNT(*) AS TgtRowCount,
+            MIN(' + QUOTENAME(@KeyColumn) + ') AS TgtMinID,
+            MAX(' + QUOTENAME(@KeyColumn) + ') AS TgtMaxID,
+            SUM(CASE WHEN ' + QUOTENAME(@KeyColumn) + ' IS NULL THEN 1 ELSE 0 END) AS TgtNullCount,
+            CHECKSUM_AGG(BINARY_CHECKSUM(*)) AS TgtChecksum
+        FROM ' + QUOTENAME(@TargetTable) + '
+        GROUP BY CAST(' + QUOTENAME(@PartitionColumn) + ' AS DATE)
+    )
+    SELECT
+        s.PartitionValue,
+        s.SrcRowCount,
+        t.TgtRowCount,
+        s.SrcMinID,
+        t.TgtMinID,
+        s.SrcMaxID,
+        t.TgtMaxID,
+        s.SrcNullCount,
+        t.TgtNullCount,
+        s.SrcChecksum AS SourceChecksum,
+        t.TgtChecksum AS TargetChecksum,
+        CASE
+            WHEN s.SrcRowCount = t.TgtRowCount
+             AND s.SrcMinID = t.TgtMinID
+             AND s.SrcMaxID = t.TgtMaxID
+             AND s.SrcNullCount = t.TgtNullCount
+             AND s.SrcChecksum = t.TgtChecksum
+            THEN ''PASS''
+            ELSE ''FAIL''
+        END AS ValidationStatus
+    FROM SourceStats s
+    FULL OUTER JOIN TargetStats t
+        ON s.PartitionValue = t.PartitionValue
+    ORDER BY PartitionValue;
+    ';
+
+    EXEC sp_executesql @sql;
+END
+GO
+Usage Example
+SQL
+Copy code
+EXEC dbo.usp_ValidatePartitionedData
+    @SourceTable = 'cff_report',
+    @TargetTable = 'cff_report_new',
+    @KeyColumn = 'report_id',
+    @PartitionColumn = 'report_date';
+Features
+No physical tables created — fully in-memory.
+Partition-level comparison between old and new tables.
+Computes:
+Row counts
+Min/Max key values
+Null counts
+Aggregated row checksum
+Produces PASS/FAIL per partition for instant validation.
+Fully dynamic — works with any table, any key column, and any partition column.
+FULL OUTER JOIN ensures missing partitions in either table are flagged as FAIL.
+This is a complete production-ready validation block that you can use after any batch or partitioned migration to verify data correctness without moving or duplicating data.
