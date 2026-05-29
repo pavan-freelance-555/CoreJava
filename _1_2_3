@@ -1,0 +1,114 @@
+<plugin>
+    <groupId>org.jvnet.jax-ws-commons</groupId>
+    <artifactId>jaxws-maven-plugin</artifactId>
+    <version>2.3</version>
+
+    <executions>
+        <execution>
+            <id>wsimport-from-jdk</id>
+            <phase>generate-sources</phase>
+            <goals>
+                <goal>wsimport</goal>
+            </goals>
+        </execution>
+    </executions>
+
+    <configuration>
+
+        <vmArgs>
+            <vmArg>-Djavax.xml.accessExternalSchema=all</vmArg>
+        </vmArgs>
+
+        <wsdlLocation>${wsdl.url}</wsdlLocation>
+
+        <wsdlDirectory>
+            src/main/resources/${wsdl.dir}
+        </wsdlDirectory>
+
+        <wsdlFiles>
+            <wsdlFile>${wsdl.file}</wsdlFile>
+        </wsdlFiles>
+
+        <packageName>
+            com.citi.cipana.acctbal.rpc.model
+        </packageName>
+
+        <!-- Generate directly into src/main/java -->
+        <sourceDestDir>
+            ${project.basedir}/src/main/java
+        </sourceDestDir>
+
+        <keep>true</keep>
+        <xnocompile>true</xnocompile>
+        <verbose>true</verbose>
+
+    </configuration>
+</plugin>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<plugin>
+    <artifactId>maven-antrun-plugin</artifactId>
+    <version>3.1.0</version>
+
+    <executions>
+        <execution>
+            <id>delete-old-stubs</id>
+            <phase>generate-sources</phase>
+
+            <goals>
+                <goal>run</goal>
+            </goals>
+
+            <configuration>
+                <target>
+
+                    <delete includeemptydirs="true">
+
+                        <fileset
+                            dir="${project.basedir}/src/main/java/com/citi/cipana/acctbal/rpc/model">
+
+                            <include name="**/*.java"/>
+
+                        </fileset>
+
+                    </delete>
+
+                </target>
+            </configuration>
+
+        </execution>
+    </executions>
+</plugin>
