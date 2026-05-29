@@ -1,0 +1,77 @@
+<plugin>
+    <groupId>com.sun.xml.ws</groupId>
+    <artifactId>jaxws-maven-plugin</artifactId>
+    <version>2.3.7</version>
+
+    <executions>
+        <execution>
+            <id>generate-ws-client</id>
+            <phase>generate-sources</phase>
+            <goals>
+                <goal>wsimport</goal>
+            </goals>
+        </execution>
+    </executions>
+
+    <configuration>
+        <wsdlDirectory>${project.basedir}/src/main/resources/${wsdl.dir}</wsdlDirectory>
+
+        <wsdlFiles>
+            <wsdlFile>${wsdl.file}</wsdlFile>
+        </wsdlFiles>
+
+        <packageName>com.citi.cipana.acctbal.rpc.model</packageName>
+
+        <sourceDestDir>${project.basedir}/src/main/java</sourceDestDir>
+
+        <keep>true</keep>
+        <xnocompile>true</xnocompile>
+        <extension>true</extension>
+        <verbose>true</verbose>
+
+        <vmArgs>
+            <vmArg>-Djavax.xml.accessExternalSchema=all</vmArg>
+        </vmArgs>
+    </configuration>
+</plugin>
+
+
+
+
+
+
+
+
+<plugin>
+    <artifactId>maven-antrun-plugin</artifactId>
+    <version>3.1.0</version>
+
+    <executions>
+        <execution>
+            <id>delete-old-stubs</id>
+            <phase>initialize</phase>
+            <goals>
+                <goal>run</goal>
+            </goals>
+
+            <configuration>
+                <target>
+                    <delete includeemptydirs="true">
+                        <fileset dir="${project.basedir}/src/main/java/com/citi/cipana/acctbal/rpc/model">
+                            <include name="**/*.java"/>
+                        </fileset>
+                    </delete>
+                </target>
+            </configuration>
+        </execution>
+    </executions>
+</plugin>
+
+
+
+
+
+
+
+
+
