@@ -1,0 +1,86 @@
+your case — Java 8 → Java 21, Spring 4.x, Tomcat 10, schema + application first — the better target is:
+Recommended target: Spring Framework 6.2.x
+Not Spring 5.x.
+Because you already said deployment target is Tomcat 10, and Tomcat 10 uses Jakarta EE, not old Java EE javax.*.
+Spring Framework 6.x is aligned with:
+Area
+Spring 5.x
+Spring 6.2.x
+Java baseline
+Java 8+
+Java 17+
+Java 21 support
+Not ideal as final target
+Good fit
+Servlet API
+javax.servlet.*
+jakarta.servlet.*
+JPA / Validation / JAXB
+javax.*
+jakarta.*
+Tomcat 9
+Good fit
+Not target
+Tomcat 10 / 10.1
+Not good
+Correct fit
+Future support
+Legacy path
+Modern path
+Spring Framework 6 moved to Jakarta EE 9+ using jakarta.* packages, and it is compatible with Tomcat 10.1. � Spring 5.3 is the last javax-based line and supports Java EE 8 APIs like Servlet 4.0, JPA 2.2, Bean Validation 2.0. �
+Home
+GitHub
+My practical recommendation
+Use:
+XML
+Spring Framework: 6.2.x
+Java: 21
+Maven: 3.9.x
+Tomcat: 10.1.x
+Jakarta EE APIs: jakarta.*
+But do not jump to Spring 7 yet. Spring 7 is newer and changes the baseline again. For enterprise migration from Java 8, Spring 6.2.x is the safer modern target.
+Spring 6.2 was designed for JDK 17–23 and Jakarta EE 9–10. � That covers Java 21 properly.
+Home
+When should you use Spring 5.x?
+Use Spring 5.3.x only as an intermediate migration step if:
+You want to keep javax.* temporarily.
+You are still deploying to Tomcat 9.
+You cannot migrate JAXB/JAX-WS/JPA/Validation/Servlet imports to jakarta.* yet.
+You want a smaller step first:
+Spring 4 → Spring 5.3 → Spring 6.2
+But Spring 5.x is not the right final target for Tomcat 10.
+Best path for your project
+Since your webapp is later, but schema + application will move now, I suggest this path:
+Plain text
+Step 1:
+Java 8 + Spring 4.x
+        ↓
+Step 2:
+Java 21 compile readiness
+Fix JAXB/JAX-WS external dependencies
+Fix Maven plugins
+Fix removed Java EE modules
+        ↓
+Step 3:
+Move Spring 4.x → Spring 6.2.x
+        ↓
+Step 4:
+Move all javax.* dependencies to jakarta.*
+        ↓
+Step 5:
+Deploy application-compatible modules for Tomcat 10.1
+Important warning for your application module
+If your application still uses RichFaces, that is a major risk.
+RichFaces is old and strongly tied to older JSF / Java EE style libraries. For Java 21 + Jakarta + Tomcat 10, RichFaces will likely create dependency conflicts. So for now:
+Plain text
+Schema module: migrate fully to Java 21 + Jakarta
+Config module: migrate fully to Java 21 + Spring 6.2
+Application module: migrate Spring services first, isolate RichFaces-related code
+Webapp / JSF / RichFaces: handle separately later
+Final answer
+For your target architecture:
+Plain text
+Choose Spring Framework 6.2.x
+Do not choose Spring 5.x as final target
+Use Spring 5.3.x only if you need a temporary bridge while still on javax.* and Tomcat 9.
+For Java 21 + Maven 3.9 + Tomcat 10.1 + Jakarta migration, Spring 6.2.x is the correct stable choice.
