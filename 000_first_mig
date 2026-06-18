@@ -1,0 +1,977 @@
+Java 8 to Java 21 Migration Plan
+Modules: schema, config, application
+Excluded for now: webapp / JSF / RichFaces
+
+============================================================
+1. Scope
+============================================================
+
+Current monolith modules:
+
+1. schema
+2. config
+3. application
+4. webapp
+
+Current technologies:
+
+- Java 8
+- Maven
+- Spring 4.x
+- JSF
+- RichFaces
+- JAXB
+- JAX-WS
+- Jersey
+- SOAP / REST
+- XSD / YAML schemas
+
+Target for this phase:
+
+- Migrate only schema, config, and application.
+- Do not migrate webapp in this phase.
+- Do not build webapp in this phase.
+- Do not include JSF or RichFaces in the application module.
+- Target Java 21, Maven 3.9.x, Spring Framework 6.2.x, Jersey 3.1.x, Jakarta JAXB 4.x, Jakarta JAX-WS 4.x.
+
+Final core build should be:
+
+parent
+ â”œâ”€â”€ schema       -> Jakarta JAXB / Jakarta JAX-WS generated classes
+ â”œâ”€â”€ config       -> Spring 6 / Jakarta annotations
+ â””â”€â”€ application  -> Spring 6 / Jersey 3 / Jakarta SOAP/REST/JAXB
+
+webapp is migrated later.
+
+============================================================
+2. Important Rule
+============================================================
+
+For schema, config, and application:
+
+Do not mix javax.* and jakarta.* dependencies.
+
+For this phase, application must not depend on:
+
+- RichFaces
+- JSF
+- javax.faces
+- jakarta.faces
+- servlet UI classes
+- FacesContext
+- UIComponent
+- org.richfaces.*
+
+Application should be pure business / integration logic.
+
+Allowed in application:
+
+- service classes
+- SOAP clients
+- REST clients
+- mappers
+- validators
+- repositories
+- business rules
+- JAXB models
+- Jersey client code
+- Spring beans
+
+Not allowed in application:
+
+- JSF managed beans
+- RichFaces upload/listener classes
+- FacesContext
+- UIComponent
+- javax.faces.*
+- jakarta.faces.*
+- org.richfaces.*
+
+============================================================
+3. Recommended Target Versions
+============================================================
+
+Use the following target stack:
+
+Java: 21
+Maven: 3.9.x
+Spring Framework: 6.2.x
+Jersey: 3.1.x
+JAXB Runtime: 4.0.x
+JAX-WS RI / Metro: 4.0.x
+Tomcat later: 10.1.x
+
+Why Spring 6?
+
+Spring 6 is the right target for Java 21 and Jakarta namespace.
+Spring 5.x can run on modern Java but still belongs to the older javax world.
+For Tomcat 10.x and Jakarta migration, Spring 6 is the correct target.
+
+============================================================
+4. Parent POM - Module Setup
+============================================================
+
+Temporarily configure parent pom.xml to build only:
+
+<modules>
+    <module>schema</module>
+    <module>config</module>
+    <module>application</module>
+    <!-- webapp later -->
+</modules>
+
+Do not include:
+
+<module>webapp</module>
+
+during this migration phase.
+
+============================================================
+5. Parent POM - Properties
+============================================================
+
+Add central versions in parent pom.xml:
+
+<properties>
+    <java.version>21</java.version>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    <spring.version>6.2.19</spring.version>
+    <jersey.version>3.1.12</jersey.version>
+
+    <jaxb.runtime.version>4.0.9</jaxb.runtime.version>
+    <jaxb.plugin.version>4.0.16</jaxb.plugin.version>
+
+    <jaxws.version>4.0.5</jaxws.version>
+
+    <jakarta.annotation.version>2.1.1</jakarta.annotation.version>
+    <jakarta.activation.version>2.1.3</jakarta.activation.version>
+    <jakarta.validation.version>3.0.2</jakarta.validation.version>
+
+    <jackson.version>2.19.2</jackson.version>
+</properties>
+
+============================================================
+6. Parent POM - Dependency Management
+============================================================
+
+Add BOMs in parent pom.xml:
+
+<dependencyManagement>
+    <dependencies>
+
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-framework-bom</artifactId>
+            <version>${spring.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.glassfish.jersey</groupId>
+            <artifactId>jersey-bom</artifactId>
+            <version>${jersey.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.sun.xml.ws</groupId>
+            <artifactId>jaxws-ri-bom</artifactId>
+            <version>${jaxws.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fasterxml.jackson</groupId>
+            <artifactId>jackson-bom</artifactId>
+            <version>${jackson.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+
+    </dependencies>
+</dependencyManagement>
+
+============================================================
+7. Parent POM - Build Plugins
+============================================================
+
+Add plugin management:
+
+<build>
+    <pluginManagement>
+        <plugins>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.15.0</version>
+                <configuration>
+                    <release>21</release>
+                    <encoding>UTF-8</encoding>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.6</version>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>3.5.6</version>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.11.0</version>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.6.3</version>
+            </plugin>
+
+        </plugins>
+    </pluginManagement>
+</build>
+
+============================================================
+8. Parent POM - Ban Old javax and Legacy UI Dependencies
+============================================================
+
+Add Maven Enforcer plugin to parent pom.xml:
+
+<build>
+    <plugins>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-enforcer-plugin</artifactId>
+            <executions>
+                <execution>
+                    <id>ban-javax-and-legacy-ui</id>
+                    <goals>
+                        <goal>enforce</goal>
+                    </goals>
+                    <configuration>
+                        <rules>
+                            <requireJavaVersion>
+                                <version>[21,22)</version>
+                            </requireJavaVersion>
+
+                            <requireMavenVersion>
+                                <version>[3.9.0,)</version>
+                            </requireMavenVersion>
+
+                            <dependencyConvergence />
+
+                            <requireUpperBoundDeps />
+
+                            <bannedDependencies>
+                                <excludes>
+                                    <exclude>javax.servlet:*</exclude>
+                                    <exclude>javax.servlet.jsp:*</exclude>
+                                    <exclude>javax.el:*</exclude>
+                                    <exclude>javax.faces:*</exclude>
+                                    <exclude>javax.ws.rs:*</exclude>
+                                    <exclude>javax.xml.bind:*</exclude>
+                                    <exclude>javax.xml.ws:*</exclude>
+                                    <exclude>javax.jws:*</exclude>
+                                    <exclude>javax.annotation:*</exclude>
+                                    <exclude>javax.validation:*</exclude>
+                                    <exclude>javax.activation:*</exclude>
+
+                                    <exclude>com.sun.jersey:*</exclude>
+                                    <exclude>org.richfaces:*</exclude>
+                                    <exclude>org.jboss.richfaces:*</exclude>
+                                </excludes>
+                            </bannedDependencies>
+                        </rules>
+                    </configuration>
+                </execution>
+            </executions>
+        </plugin>
+    </plugins>
+</build>
+
+Purpose:
+
+- Stop old Java EE / javax dependencies entering through transitive dependencies.
+- Stop RichFaces / JSF leakage into core modules.
+- Stop Spring/Jersey/JAXB conflicts early.
+
+============================================================
+9. Schema Module Migration
+============================================================
+
+Schema module should use Jakarta JAXB only.
+
+schema/pom.xml dependencies:
+
+<dependencies>
+
+    <dependency>
+        <groupId>jakarta.xml.bind</groupId>
+        <artifactId>jakarta.xml.bind-api</artifactId>
+        <version>4.0.2</version>
+    </dependency>
+
+    <dependency>
+        <groupId>org.glassfish.jaxb</groupId>
+        <artifactId>jaxb-runtime</artifactId>
+        <version>${jaxb.runtime.version}</version>
+    </dependency>
+
+    <dependency>
+        <groupId>jakarta.activation</groupId>
+        <artifactId>jakarta.activation-api</artifactId>
+        <version>${jakarta.activation.version}</version>
+    </dependency>
+
+</dependencies>
+
+Remove old dependency:
+
+<dependency>
+    <groupId>javax.xml.bind</groupId>
+    <artifactId>jaxb-api</artifactId>
+</dependency>
+
+============================================================
+10. Schema Module - XSD to Java Generation
+============================================================
+
+Use JAXB 4 plugin:
+
+<build>
+    <plugins>
+        <plugin>
+            <groupId>org.jvnet.jaxb</groupId>
+            <artifactId>jaxb-maven-plugin</artifactId>
+            <version>${jaxb.plugin.version}</version>
+            <executions>
+                <execution>
+                    <id>generate-xsd-classes</id>
+                    <phase>generate-sources</phase>
+                    <goals>
+                        <goal>generate</goal>
+                    </goals>
+                    <configuration>
+                        <schemaDirectory>${project.basedir}/src/main/resources/xsd</schemaDirectory>
+                        <schemaIncludes>
+                            <include>**/*.xsd</include>
+                        </schemaIncludes>
+
+                        <bindingDirectory>${project.basedir}/src/main/resources/bindings</bindingDirectory>
+                        <bindingIncludes>
+                            <include>**/*.xjb</include>
+                        </bindingIncludes>
+
+                        <generatePackage>com.company.schema.generated</generatePackage>
+                        <extension>true</extension>
+
+                        <args>
+                            <arg>-XautoNameResolution</arg>
+                        </args>
+                    </configuration>
+                </execution>
+            </executions>
+        </plugin>
+    </plugins>
+</build>
+
+Expected generated imports:
+
+import jakarta.xml.bind.annotation.XmlElement;
+import jakarta.xml.bind.annotation.XmlRootElement;
+import jakarta.xml.bind.annotation.XmlType;
+
+Not expected:
+
+import javax.xml.bind.annotation.XmlElement;
+
+============================================================
+11. SOAP / WSDL Generation, If Schema Has WSDL
+============================================================
+
+Use JAX-WS 4 plugin:
+
+<plugin>
+    <groupId>com.sun.xml.ws</groupId>
+    <artifactId>jaxws-maven-plugin</artifactId>
+    <version>${jaxws.version}</version>
+    <executions>
+        <execution>
+            <id>generate-wsdl-classes</id>
+            <phase>generate-sources</phase>
+            <goals>
+                <goal>wsimport</goal>
+            </goals>
+            <configuration>
+                <wsdlDirectory>${project.basedir}/src/main/resources/wsdl</wsdlDirectory>
+                <wsdlFiles>
+                    <wsdlFile>your-service.wsdl</wsdlFile>
+                </wsdlFiles>
+                <packageName>com.company.schema.soap.generated</packageName>
+                <sourceDestDir>${project.build.directory}/generated-sources/wsimport</sourceDestDir>
+                <xnocompile>true</xnocompile>
+                <keep>true</keep>
+                <extension>true</extension>
+            </configuration>
+        </execution>
+    </executions>
+</plugin>
+
+Runtime dependency if SOAP runtime is needed:
+
+<dependency>
+    <groupId>com.sun.xml.ws</groupId>
+    <artifactId>rt</artifactId>
+</dependency>
+
+============================================================
+12. Config Module Migration
+============================================================
+
+config module should use Spring 6 and Jakarta annotations.
+
+config/pom.xml dependencies:
+
+<dependencies>
+
+    <dependency>
+        <groupId>org.springframework</groupId>
+        <artifactId>spring-core</artifactId>
+    </dependency>
+
+    <dependency>
+        <groupId>org.springframework</groupId>
+        <artifactId>spring-beans</artifactId>
+    </dependency>
+
+    <dependency>
+        <groupId>org.springframework</groupId>
+        <artifactId>spring-context</artifactId>
+    </dependency>
+
+    <dependency>
+        <groupId>jakarta.annotation</groupId>
+        <artifactId>jakarta.annotation-api</artifactId>
+        <version>${jakarta.annotation.version}</version>
+    </dependency>
+
+</dependencies>
+
+Change imports:
+
+Old:
+
+import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
+
+New:
+
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
+
+============================================================
+13. Config Module - Spring XML Update
+============================================================
+
+Old Spring XML should not use version-specific Spring 4 XSDs.
+
+Old:
+
+http://www.springframework.org/schema/beans/spring-beans-4.0.xsd
+
+New:
+
+https://www.springframework.org/schema/beans/spring-beans.xsd
+
+Example:
+
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:context="http://www.springframework.org/schema/context"
+       xmlns:tx="http://www.springframework.org/schema/tx"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="
+           http://www.springframework.org/schema/beans https://www.springframework.org/schema/beans/spring-beans.xsd
+           http://www.springframework.org/schema/context https://www.springframework.org/schema/context/spring-context.xsd
+           http://www.springframework.org/schema/tx https://www.springframework.org/schema/tx/spring-tx.xsd">
+
+</beans>
+
+============================================================
+14. Application Module Migration
+============================================================
+
+Application module should be clean business/integration logic.
+
+application/pom.xml dependencies:
+
+<dependencies>
+
+    <!-- Internal modules -->
+    <dependency>
+        <groupId>com.company</groupId>
+        <artifactId>schema</artifactId>
+        <version>${project.version}</version>
+    </dependency>
+
+    <dependency>
+        <groupId>com.company</groupId>
+        <artifactId>config</artifactId>
+        <version>${project.version}</version>
+    </dependency>
+
+    <!-- Spring 6 -->
+    <dependency>
+        <groupId>org.springframework</groupId>
+        <artifactId>spring-core</artifactId>
+    </dependency>
+
+    <dependency>
+        <groupId>org.springframework</groupId>
+        <artifactId>spring-beans</artifactId>
+    </dependency>
+
+    <dependency>
+        <groupId>org.springframework</groupId>
+        <artifactId>spring-context</artifactId>
+    </dependency>
+
+    <dependency>
+        <groupId>org.springframework</groupId>
+        <artifactId>spring-web</artifactId>
+    </dependency>
+
+    <dependency>
+        <groupId>org.springframework</groupId>
+        <artifactId>spring-oxm</artifactId>
+    </dependency>
+
+    <dependency>
+        <groupId>org.springframework</groupId>
+        <artifactId>spring-tx</artifactId>
+    </dependency>
+
+    <!-- Jersey 3 Jakarta REST client -->
+    <dependency>
+        <groupId>org.glassfish.jersey.core</groupId>
+        <artifactId>jersey-client</artifactId>
+    </dependency>
+
+    <dependency>
+        <groupId>org.glassfish.jersey.inject</groupId>
+        <artifactId>jersey-hk2</artifactId>
+    </dependency>
+
+    <dependency>
+        <groupId>org.glassfish.jersey.media</groupId>
+        <artifactId>jersey-media-json-jackson</artifactId>
+    </dependency>
+
+    <dependency>
+        <groupId>org.glassfish.jersey.media</groupId>
+        <artifactId>jersey-media-jaxb</artifactId>
+    </dependency>
+
+    <!-- Jakarta JAXB -->
+    <dependency>
+        <groupId>jakarta.xml.bind</groupId>
+        <artifactId>jakarta.xml.bind-api</artifactId>
+        <version>4.0.2</version>
+    </dependency>
+
+    <dependency>
+        <groupId>org.glassfish.jaxb</groupId>
+        <artifactId>jaxb-runtime</artifactId>
+        <version>${jaxb.runtime.version}</version>
+    </dependency>
+
+    <!-- Jakarta SOAP runtime -->
+    <dependency>
+        <groupId>com.sun.xml.ws</groupId>
+        <artifactId>rt</artifactId>
+    </dependency>
+
+    <!-- Jakarta common APIs -->
+    <dependency>
+        <groupId>jakarta.annotation</groupId>
+        <artifactId>jakarta.annotation-api</artifactId>
+        <version>${jakarta.annotation.version}</version>
+    </dependency>
+
+    <dependency>
+        <groupId>jakarta.validation</groupId>
+        <artifactId>jakarta.validation-api</artifactId>
+        <version>${jakarta.validation.version}</version>
+    </dependency>
+
+    <dependency>
+        <groupId>jakarta.activation</groupId>
+        <artifactId>jakarta.activation-api</artifactId>
+        <version>${jakarta.activation.version}</version>
+    </dependency>
+
+    <!-- Logging -->
+    <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-api</artifactId>
+        <version>2.0.17</version>
+    </dependency>
+
+</dependencies>
+
+============================================================
+15. If Application Has REST Resources
+============================================================
+
+If application has JAX-RS resource classes like:
+
+@Path("/customer")
+public class CustomerResource {
+}
+
+add:
+
+<dependency>
+    <groupId>jakarta.ws.rs</groupId>
+    <artifactId>jakarta.ws.rs-api</artifactId>
+    <version>3.1.0</version>
+</dependency>
+
+If application only calls downstream REST APIs, Jersey client dependencies are enough.
+
+============================================================
+16. If Application Has Servlet Classes
+============================================================
+
+Preferably application should not have servlet classes.
+
+If it has filters/interceptors like:
+
+import javax.servlet.Filter;
+import javax.servlet.http.HttpServletRequest;
+
+change to:
+
+import jakarta.servlet.Filter;
+import jakarta.servlet.http.HttpServletRequest;
+
+and add:
+
+<dependency>
+    <groupId>jakarta.servlet</groupId>
+    <artifactId>jakarta.servlet-api</artifactId>
+    <version>6.0.0</version>
+    <scope>provided</scope>
+</dependency>
+
+Recommended:
+
+Move servlet filters to webapp later.
+Keep application independent.
+
+============================================================
+17. Code Import Changes
+============================================================
+
+Change across schema, config, and application:
+
+javax.xml.bind.*     -> jakarta.xml.bind.*
+javax.xml.ws.*       -> jakarta.xml.ws.*
+javax.jws.*          -> jakarta.jws.*
+javax.ws.rs.*        -> jakarta.ws.rs.*
+javax.annotation.*   -> jakarta.annotation.*
+javax.validation.*   -> jakarta.validation.*
+javax.activation.*   -> jakarta.activation.*
+
+Do not change these Java SE packages:
+
+javax.net.ssl.*
+javax.crypto.*
+javax.security.*
+javax.naming.*
+javax.sql.*
+javax.xml.parsers.*
+javax.xml.transform.*
+javax.xml.datatype.*
+javax.xml.namespace.*
+javax.xml.stream.*
+
+Common mistake:
+
+Not every javax package becomes jakarta.
+Only Java EE / Jakarta EE packages should be migrated.
+
+============================================================
+18. RichFaces / JSF Leakage Check
+============================================================
+
+Before compiling application, run:
+
+grep -R "org.richfaces\|javax.faces\|jakarta.faces\|FacesContext\|UIComponent" application/src/main/java
+
+If found, do not add JSF/Faces dependency to application.
+
+Instead, move that class to webapp later.
+
+Bad application code:
+
+import javax.faces.context.FacesContext;
+import org.richfaces.event.FileUploadEvent;
+
+Do not keep this in application.
+
+Better approach:
+
+Create an interface in application:
+
+public interface UserNotificationService {
+    void showInfo(String message);
+    void showError(String message);
+}
+
+Application depends only on this interface.
+
+Later, webapp can implement it using JSF / Jakarta Faces.
+
+============================================================
+19. Exclusions for Old Transitive Dependencies
+============================================================
+
+When old vendor/client libraries bring old Java EE jars, exclude them.
+
+Example:
+
+<dependency>
+    <groupId>com.vendor</groupId>
+    <artifactId>legacy-client</artifactId>
+    <version>1.0.0</version>
+
+    <exclusions>
+        <exclusion>
+            <groupId>javax.xml.bind</groupId>
+            <artifactId>jaxb-api</artifactId>
+        </exclusion>
+
+        <exclusion>
+            <groupId>com.sun.xml.bind</groupId>
+            <artifactId>jaxb-impl</artifactId>
+        </exclusion>
+
+        <exclusion>
+            <groupId>com.sun.xml.bind</groupId>
+            <artifactId>jaxb-core</artifactId>
+        </exclusion>
+
+        <exclusion>
+            <groupId>javax.xml.ws</groupId>
+            <artifactId>jaxws-api</artifactId>
+        </exclusion>
+
+        <exclusion>
+            <groupId>javax.jws</groupId>
+            <artifactId>jsr181-api</artifactId>
+        </exclusion>
+
+        <exclusion>
+            <groupId>javax.ws.rs</groupId>
+            <artifactId>javax.ws.rs-api</artifactId>
+        </exclusion>
+
+        <exclusion>
+            <groupId>javax.annotation</groupId>
+            <artifactId>javax.annotation-api</artifactId>
+        </exclusion>
+
+        <exclusion>
+            <groupId>javax.validation</groupId>
+            <artifactId>validation-api</artifactId>
+        </exclusion>
+
+        <exclusion>
+            <groupId>javax.activation</groupId>
+            <artifactId>activation</artifactId>
+        </exclusion>
+
+        <exclusion>
+            <groupId>javax.faces</groupId>
+            <artifactId>javax.faces-api</artifactId>
+        </exclusion>
+
+        <exclusion>
+            <groupId>com.sun.jersey</groupId>
+            <artifactId>jersey-client</artifactId>
+        </exclusion>
+    </exclusions>
+</dependency>
+
+============================================================
+20. Build Order
+============================================================
+
+Use this exact order.
+
+Step 1: Parent validation
+
+mvn -N validate
+
+Step 2: Schema only
+
+mvn -pl schema clean install -DskipTests
+
+Fix all JAXB/WSDL generation issues here first.
+
+Step 3: Config with dependencies
+
+mvn -pl config -am clean install -DskipTests
+
+Step 4: Application compile
+
+mvn -pl application -am clean compile -DskipTests
+
+Step 5: Application tests
+
+mvn -pl application -am test
+
+Step 6: Full core build
+
+mvn clean verify
+
+Because parent has only 3 modules now, this builds only:
+
+schema
+config
+application
+
+============================================================
+21. Dependency Validation Commands
+============================================================
+
+Run all of these.
+
+Check for old javax:
+
+mvn dependency:tree -Dincludes=javax.*
+
+Expected:
+
+Ideally empty.
+
+Check JAXB:
+
+mvn dependency:tree -Dincludes=javax.xml.bind,jakarta.xml.bind,com.sun.xml.bind,org.glassfish.jaxb
+
+Expected:
+
+jakarta.xml.bind-api
+org.glassfish.jaxb:jaxb-runtime
+
+Not expected:
+
+javax.xml.bind:jaxb-api
+com.sun.xml.bind:jaxb-impl
+
+Check JAX-WS:
+
+mvn dependency:tree -Dincludes=javax.xml.ws,jakarta.xml.ws,com.sun.xml.ws
+
+Expected:
+
+com.sun.xml.ws:rt
+jakarta.xml.ws-api
+
+Not expected:
+
+javax.xml.ws:jaxws-api
+
+Check Jersey:
+
+mvn dependency:tree -Dincludes=org.glassfish.jersey,com.sun.jersey,javax.ws.rs,jakarta.ws.rs
+
+Expected:
+
+org.glassfish.jersey 3.1.x
+jakarta.ws.rs-api
+
+Not expected:
+
+com.sun.jersey
+javax.ws.rs-api
+
+Check Spring:
+
+mvn dependency:tree -Dincludes=org.springframework
+
+Expected:
+
+Only Spring 6.2.x.
+
+Not expected:
+
+Spring 4.x
+Spring 5.x
+mixed Spring versions
+
+Check RichFaces/JSF leakage:
+
+mvn dependency:tree -Dincludes=org.richfaces,org.jboss.richfaces,javax.faces,jakarta.faces
+
+Expected for this phase:
+
+nothing
+
+Because webapp is not part of this migration yet.
+
+============================================================
+22. Final Migration Checklist
+============================================================
+
+1. Remove webapp from parent module build.
+2. Set Java 21 and Maven 3.9.
+3. Upgrade Spring 4.x to Spring 6.2.x.
+4. Upgrade Jersey to Jersey 3.1.x.
+5. Replace JAXB with Jakarta JAXB 4.
+6. Replace JAX-WS with Metro/JAX-WS 4.
+7. Regenerate XSD/WSDL classes.
+8. Change javax.xml.bind to jakarta.xml.bind.
+9. Change javax.xml.ws to jakarta.xml.ws.
+10. Change javax.jws to jakarta.jws.
+11. Change javax.ws.rs to jakarta.ws.rs.
+12. Change javax.annotation to jakarta.annotation.
+13. Change javax.validation to jakarta.validation.
+14. Remove RichFaces/JSF imports from application.
+15. Add Maven Enforcer to block old javax dependencies.
+16. Add exclusions for old transitive dependencies.
+17. Build schema first.
+18. Build config second.
+19. Build application third.
+20. Run dependency tree checks.
+
+============================================================
+23. Final Architecture Decision
+============================================================
+
+For this phase:
+
+schema/config/application = full Jakarta now
+webapp/RichFaces/JSF = separate later migration
+
+Do not solve application build errors by adding:
+
+- javax.faces
+- jakarta.faces
+- RichFaces
+- old servlet jars
+
+That will break the clean migration path to Tomcat 10 later.
