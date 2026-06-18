@@ -1,0 +1,34 @@
+only schema + config + application, you can migrate to complete Jakarta and keep webapp for later.
+But one rule is mandatory:
+Until webapp is migrated, your application JAR must not depend on RichFaces, JSF, javax.faces, javax.servlet, or any UI classes.
+Your Java 21 core build should be:
+Plain text
+parent
+ ├── schema       -> Jakarta JAXB / Jakarta JAX-WS generated classes
+ ├── config       -> Spring 6 / Jakarta annotations
+ └── application  -> Spring 6 / Jersey 3 / Jakarta SOAP/REST/JAXB
+Do not build webapp in this migration phase.
+1. Recommended target versions
+Use this target stack:
+Area
+Version
+Java
+21
+Maven
+3.9.x
+Spring Framework
+6.2.x, example: 6.2.19
+Jersey
+3.1.x, example: 3.1.12
+JAXB Runtime
+4.0.9
+JAX-WS RI / Metro
+4.0.5
+Tomcat later
+10.1.x
+Spring 6 moved to the jakarta.* namespace and supports Jakarta EE 9/10. Spring’s version page also states that Spring 6.2 targets Jakarta EE 10 level APIs such as Servlet 6.0, JPA 3.1, and Bean Validation 3.0. �
+Home +1
+Jersey 3 also moved from javax.* to jakarta.*, so old Jersey 1/2 code must be updated. �
+eclipse-ee4j.github.io
+Tomcat 10.1 supports Jakarta Servlet 6.0, Jakarta Pages 3.1, Jakarta EL 5.0, and related Jakarta APIs, so this is the correct later runtime target. �
+tomcat.apache.org
