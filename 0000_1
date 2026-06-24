@@ -1,0 +1,74 @@
+JAXB plugin 3.x is Jakarta-based and can generate jakarta.xml.bind classes, but during XJC generation on JDK 21 it may need --add-opens because some tooling uses reflection. JAXB plugin 4.x uses JAXB 4 and is more Java 21/Jakarta EE 10 aligned, so it does not hit the same reflective-access issue, but it is stricter and rejects old JAXB binding namespaces in the common schema.
+
+
+
+
+
+Yes, this behavior makes sense.
+It is not your application asking for JDK 21 parameters. It is the Maven JAXB/XJC generation plugin asking because of Java 17/21 strong encapsulation.
+Why 3.x asks for --add-opens ... ALL-UNNAMED
+JAXB plugin 3.x uses JAXB 3.x. It is Jakarta-based, but some JAXB/XJC tooling or old XJC add-on plugins may still use reflection internally.
+From Java 17 onward, JDK internals are strongly encapsulated. Reflection into non-open JDK packages is blocked unless you explicitly open them using options like:
+Bash
+--add-opens java.base/java.lang=ALL-UNNAMED
+Oracle’s migration guide says JDK 17 no longer permits that reflective access by default and can throw InaccessibleObjectException. � OpenJDK JEP 403 also explains that --illegal-access is obsolete and specific --add-opens / --add-exports options are now needed when old tools access JDK internals. �
+docs.oracle.com
+openjdk.org
+So when you use 3.x, it is able to read your old schema/binding style, reaches the code-generation step, and then hits the JDK 21 reflective-access issue.
+Why 4.x does not ask for those parameters
+JAXB plugin 4.x uses JAXB 4.x. Highsource documents that plugin 4.x supports JAXB 4.x, while plugin 3.x supports JAXB 3.x. �
+GitHub
+So with 4.x, two things are happening:
+It is newer and more aligned with Java 17/21.
+It is stricter about Jakarta binding namespaces.
+That means 4.x may fail earlier with namespace validation, before it reaches the old reflective code path. So it does not ask for --add-opens, but it asks you to update the JAXB namespace.
+In simple words:
+Plain text
+JAXB plugin 3.x:
+Old namespace accepted
+↓
+Generation starts
+↓
+JDK 21 reflective-access issue appears
+↓
+Asks for --add-opens / ALL-UNNAMED
+
+JAXB plugin 4.x:
+Newer tool
+↓
+Checks schema/binding namespace strictly
+↓
+Fails before generation
+↓
+No --add-opens message
+What ALL-UNNAMED means
+Most Maven plugins run on the normal classpath, not as proper Java modules.
+Those classpath jars are treated as unnamed modules.
+So this:
+Bash
+--add-opens java.base/java.lang=ALL-UNNAMED
+means:
+Plain text
+Open java.base/java.lang package to Maven plugin jars running on classpath.
+It is a build-time workaround, not a real application feature.
+Important: do not put this in application runtime
+Do not add these flags to Tomcat or production runtime unless your actual application startup needs them.
+For JAXB generation, put them only in Maven build level.
+Example:
+Plain text
+.mvn/jvm.config
+Bash
+--add-opens java.base/java.lang=ALL-UNNAMED
+--add-opens java.base/java.util=ALL-UNNAMED
+But add only the exact packages shown in your Maven error. Do not blindly open everything.
+Best explanation for your team
+You can say:
+Plain text
+JAXB plugin 3.x is Jakarta-based and can generate jakarta.xml.bind classes, but during XJC generation on JDK 21 it may need --add-opens because some tooling uses reflection. JAXB plugin 4.x uses JAXB 4 and is more Java 21/Jakarta EE 10 aligned, so it does not hit the same reflective-access issue, but it is stricter and rejects old JAXB binding namespaces in the common schema.
+For your project, since the schema is common and cannot be changed, the practical path is either:
+Plain text
+Use JAXB plugin 3.x + minimal Maven build --add-opens
+or:
+Plain text
+Use JAXB plugin 4.x + copy schema to target folder + patch namespace only in copied files
+Do not modify the original common XSD.
