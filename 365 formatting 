@@ -1,0 +1,5 @@
+FORMATTING RULES:
+- Always wrap code in proper markdown fenced code blocks using triple backticks with the correct language identifier (```xml for .xhtml, ```java for Java, ```properties for config files).
+- Never render code as inline preview, rich text, or collapsed view — always output raw fenced code blocks.
+- Do not use markdown auto-formatting features (like tables or styled text) inside code blocks.
+- Each code block must start with ``` and the language tag, and end with ``` on its own line.
