@@ -1,0 +1,66 @@
+Perfect — this confirms the actual original structure. It's simpler than I assumed: plain `<div>` with EL attributes, no `h:form`, no `h:inputHidden` — those never existed in the real file. That was my error in earlier attempts. Here's the direct migration, changing **only** what must change for Faces 4.0/Jakarta, keeping everything else byte-for-byte identical to your working version:
+
+```xml
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<f:view xmlns="http://www.w3.org/1999/xhtml"
+    xmlns:f="jakarta.faces.core"
+    xmlns:h="jakarta.faces.html"
+    xmlns:ui="jakarta.faces.facelets"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.w3.org/1999/xhtml http://www.w3.org/2002/08/xhtml/xhtml1-transitional.xsd">
+
+    <html>
+        <f:loadBundle basename="application" var="tBundle" />
+        <f:loadBundle basename="application_gif" var="gBundle" />
+
+        <h:head>
+            <meta http-equiv="EXPIRES" content="-1" />
+            <meta http-equiv="PRAGMA" content="NO-CACHE" />
+            <ui:insert name="html-head-extra-meta" />
+            <script>
+                history.forward();
+            </script>
+            <title><ui:insert name="pageTitle">#{tBundle.TSV}</ui:insert>
+            </title>
+
+            <!-- Bootstrap core CSS -->
+            <link rel="stylesheet" href="../resources/css/tsv/bootstrap.min.css" />
+            <link rel="shortcut icon" href="../resources/images/tsv/favicon.ico" />
+        </h:head>
+
+        <h:body class="tsv">
+            <div id="tsv" a_token="" lang="en" cName="#{session.getAttribute('SESSION_USER').name}"
+                tsvEntcode = "#{session.getAttribute('SESSION_USER').tsvEntcode}"
+                landingUrl="#{request.getScheme()}://#{request.getHeader('Host')}#{request.contextPath}#{loginBean.getDefaultLandingPage()}"
+                baseUrl="#{request.getScheme()}://#{request.getHeader('Host')}" >
+                <script type="text/javascript" src="../resources/js/tsv/tsv.bundle.js"></script>
+            </div>
+        </h:body>
+    </html>
+</f:view>
+```
+
+**The only actual changes from your working JSF 2.x file:**
+
+| Line | Old (JSF 2.x) | New (Faces 4.0) |
+|---|---|---|
+| `xmlns:f` | `http://java.sun.com/jsf/core` | `jakarta.faces.core` |
+| `xmlns:h` | `http://java.sun.com/jsf/html` | `jakarta.faces.html` |
+| `xmlns:ui` | `http://java.sun.com/jsf/facelets` | `jakarta.faces.facelets` |
+
+Everything else — the div structure, `session.getAttribute(...)` EL, custom attributes, script tag — is untouched, because none of it was actually broken.
+
+**This means the blank page is almost certainly not in this file at all.** Since this XHTML is essentially unchanged logic-wise, the real problem is upstream or downstream of it:
+
+1. **`loginBean`** — check if `NavigationBean.java`/login bean still has `@ManagedBean` from `javax.faces.bean.*`, or unconverted `javax.faces`/`javax.servlet` imports. If Faces 4.0 can't instantiate it, `#{loginBean.getDefaultLandingPage()}` throws, and that can blank the page.
+
+2. **`web.xml`** — confirm:
+
+```xml
+<servlet-class>jakarta.faces.webapp.FacesServlet</servlet-class>
+```
+
+3. **`faces-config.xml`** — must declare the Jakarta EE 10 schema (version="4.0"), not the old `javax` schema, or the whole config (including managed beans) may be silently ignored.
+
+4. **Server startup log** — this is the fastest way to stop guessing. Can you paste what appears in the console when you request this page? A `ClassNotFoundException`, `PropertyNotFoundException`, or similar will point directly at the real cause instead of us testing files one by one.
