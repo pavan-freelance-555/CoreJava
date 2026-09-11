@@ -1,0 +1,35 @@
+You're right to want certainty rather than a guess. Thinking about this as an expert: the real problem is that **any server-side action/outcome resolution depends on config (`DEFAULT_SUFFIX`, servlet mappings) you've said not to touch** — so as long as we route navigation through JSF's action/outcome system at all, there's inherent ambiguity. The robust, UI-only fix is to **decouple navigation from JSF's outcome resolution entirely** — keep `actionListener` firing via AJAX (so `handleClick()` still runs), then perform the actual page navigation with plain client-side JavaScript, which has zero dependency on `ViewHandler`, `DEFAULT_SUFFIX`, or navigation-case resolution.
+
+**Replace the `tsvLink` block in both `ClientAccountTemplate.xhtml` and `PasswordManagement.xhtml` with:**
+
+```xml
+<h:commandLink id="tsvLink"
+    value="#{tBundle.TSV}"
+    styleClass="ButtonStyle">
+    <f:ajax listener="#{passwordManagementNavBean.handleClick}" onevent="tsvNavigateHandler" />
+</h:commandLink>
+```
+
+**And add this small script once in the page (or in `tsv.bundle.js`, if you'd rather keep it centralized):**
+
+```html
+<script type="text/javascript">
+    function tsvNavigateHandler(data) {
+        if (data.status === "success") {
+            window.location.href = "#{request.contextPath}/tsv/home.jsf";
+        }
+    }
+</script>
+```
+
+**Why this is the correct, safest fix:**
+
+- **`actionListener` behavior is fully preserved** — `handleClick()` still executes exactly as before (styling map update, `removeBeans()` cleanup), now via an AJAX call instead of a full form POST.
+- **No `action` attribute at all** — this completely removes any dependency on outcome resolution, `<navigation-case>` matching, implicit navigation, `DEFAULT_SUFFIX`, or `FacesServlet` extension mapping. There is nothing for JSF's `NavigationHandler` to get wrong, because it's never invoked.
+- **The actual navigation is a plain browser redirect** (`window.location.href`), which is 100% deterministic — it goes exactly where you tell it, with the exact extension you write, no server-side guessing involved.
+- **Zero backend changes** — everything here lives in the `.xhtml` files only.
+- **`#{request.contextPath}`** is still resolved server-side at render time (standard EL, unrelated to navigation handling), so this correctly adapts if the app is deployed under a different context path.
+
+**One implementation detail to verify once, since Faces 4.0 renamed its client-side JS namespace:** in Jakarta Faces 4.0, the AJAX JS object is `faces.ajax` (previously `jsf.ajax` in older Mojarra). Since `<f:ajax>`'s generated callback still passes the same `data` object regardless, the function above should work as-is — but if your Mojarra/MyFaces 4.0.x build still exposes the legacy `jsf` global for compatibility, this works unchanged either way, since we're not calling `jsf.ajax`/`faces.ajax` directly ourselves — the framework invokes our `onevent` callback automatically.
+
+This is the version I'd stand behind as an expert recommendation: it sidesteps the actual source of uncertainty entirely, rather than betting on a specific outcome-string format working correctly in your particular config.
