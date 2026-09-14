@@ -1,0 +1,11 @@
+Good question, and here's the honest, most accurate answer I can give based on what's actually confirmed versus what's genuinely uncertain.
+
+**What's confirmed:** per the JSF spec itself, a navigation outcome has always been meant to be a *logical view identifier* resolved through `ViewHandler`, not a literal file resource path. The forum answer I found earlier makes this explicit — `.jsf` (or whatever your `FacesServlet` is mapped to) is correct; `.xhtml` was technically never the "right" thing to put in an `action` outcome, in any JSF version, by spec.
+
+**What's genuinely uncertain, and I won't pretend otherwise:** *why* it didn't throw an error in your old JSF 2.x/Mojarra setup. The most likely explanation, based on how older Mojarra versions behaved, is this:
+
+Older Mojarra's default `NavigationHandler` had a more forgiving fallback path — if no `<navigation-case>` matched the outcome, but the outcome string looked like it could resolve to an existing physical view (by checking if a matching file existed on disk, extension included), it would just quietly treat that as an implicit navigation and forward to it, without throwing. This lenient fallback behavior was present in various forms across Mojarra 2.x releases.
+
+In Faces 4.0's rewritten `NavigationHandler`/`ConfigurableNavigationHandler` implementation, that same lenient fallback either got removed, tightened, or changed its resolution rules — so what used to silently succeed now throws the explicit "Unable to find matching navigation case" error instead.
+
+**I can't point you to an official changelog entry confirming this exact behavior change** — I don't want to claim that certainty when I haven't verified it directly. What I can say confidently is: the corrected version (`/tsv/home.jsf`) is the version that has always been *correct* per spec, in every JSF version — so this fix isn't papering over a new requirement, it's just the first time your app has been forced to actually follow the rule it should have been following all along. If you need this documented precisely for a formal migration write-up, I'd recommend citing it as **"an implementation-level leniency difference between Mojarra 2.x's and Faces 4.0's default NavigationHandler, exposing a pre-existing spec violation in the original code"** rather than asserting a specific mechanism I can't fully verify.
