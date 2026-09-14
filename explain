@@ -1,0 +1,30 @@
+Let me break this down simply.
+
+**What the Java code does:**
+After an AJAX action runs, it sends two yes/no flags (`showOverlay`, `deleteOverlay`) back to the browser, so JavaScript on the page can decide whether to pop open a dialog box or not.
+
+**Can we skip this Java code and do it only in the `.xhtml` file?**
+
+Sometimes yes, sometimes no — it depends on one thing.
+
+**Step 1: Where does the decision come from?**
+The *decision itself* — "should the overlay show right now?" — comes from business logic (like: did the save succeed? did validation fail?). That decision has to stay in Java, because only the backend knows what happened during the action.
+
+**Step 2: How that decision reaches the screen — this part CAN often move to the UI.**
+Right now, the developer is manually pushing the flag to the browser and expecting JavaScript to read it. PrimeFaces has a simpler built-in way to do the same thing directly in the `.xhtml`, with no manual Java code needed for this part:
+
+```xml
+<p:dialog visible="#{bean.showOverlay}" ...>
+```
+
+If the property is already on the bean, PrimeFaces can just check it automatically and show/hide the dialog itself — no manual flag-passing required.
+
+**So, simple summary:**
+- Business decision (yes/no) → stays in Java, no way around it
+- Actually showing the popup → can likely move to the `.xhtml`, removing this specific method
+
+**What I need you to confirm before I give you the exact fix:**
+
+👉 **What do `showOverlay` and `deleteOverlay` actually control on the page — are they each tied to one simple popup/dialog box, or do they trigger something more complex (like multiple things happening at once, or a custom JavaScript action)?**
+
+Once you tell me that, I can tell you clearly whether this Java method can be fully removed, or only partly simplified.
