@@ -1,0 +1,313 @@
+Worked for 9s
+
+You are right. I misread the URL. Your original code clearly uses brkoauth, not brkauth.
+
+I also rechecked the original HTTP methods:
+
+keepSessionAlive.rs uses GET
+
+samlSCORERefToken.rs uses POST
+
+The final SecureShare form uses POST
+
+The bean method is getSecureShareCloudBaseAPIUrl()
+
+
+Use the following complete SecureShare.xhtml. It removes jQuery while preserving the original URLs, methods, parameter names, execution order, and bean method.
+
+<!DOCTYPE html>
+
+<f:view xmlns="http://www.w3.org/1999/xhtml"
+        xmlns:f="jakarta.faces.core"
+        xmlns:h="jakarta.faces.html">
+
+    <html xmlns="http://www.w3.org/1999/xhtml">
+
+    <h:head>
+        <title>SecureShare</title>
+        <meta charset="UTF-8" />
+    </h:head>
+
+    <h:body onload="cmdPost();">
+
+        <div id="statusMessage">
+            Loading SecureShare...
+        </div>
+
+        <!--
+            This must remain a plain HTML form.
+
+            It submits the generated SSO token to the external
+            SecureShare application.
+
+            Do not replace this with h:form.
+        -->
+        <form id="cdmForm"
+              action="#{clientAccountNavBean.getSecureShareCloudBaseAPIUrl()}"
+              method="post">
+
+            <input id="token"
+                   name="SessionToken"
+                   type="hidden"
+                   value="" />
+
+            <input id="channel"
+                   name="channel"
+                   type="hidden"
+                   value="SCORE" />
+
+            <input id="buzLine"
+                   name="buzLine"
+                   type="hidden"
+                   value="ITRADE" />
+
+        </form>
+
+        <script type="text/javascript">
+            //<![CDATA[
+
+            /**
+             * Step 1:
+             * Keep the current application session alive.
+             *
+             * Original HTTP method: GET
+             * Original URL:
+             * /midofficetools-webapp/rs/brkoauth/keepSessionAlive.rs
+             */
+            async function cmdPost() {
+                const keepSessionAliveUrl =
+                    '/midofficetools-webapp/rs/brkoauth/keepSessionAlive.rs';
+
+                try {
+                    const keepAliveResponse = await fetch(
+                        keepSessionAliveUrl,
+                        {
+                            method: 'GET',
+                            credentials: 'same-origin',
+                            cache: 'no-store',
+                            headers: {
+                                'Accept': '*/*'
+                            }
+                        }
+                    );
+
+                    if (!keepAliveResponse.ok) {
+                        const errorText =
+                            await readResponseText(keepAliveResponse);
+
+                        throw new Error(
+                            'keepSessionAlive FAILED. HTTP status: ' +
+                            keepAliveResponse.status +
+                            '. Response: ' +
+                            errorText
+                        );
+                    }
+
+                    /*
+                     * Only request the SecureShare token after the
+                     * keep-session-alive request succeeds.
+                     */
+                    await requestSecureShareToken();
+
+                } catch (error) {
+                    handleSecureShareError(
+                        'keepSessionAlive FAILED',
+                        error
+                    );
+                }
+            }
+
+            /**
+             * Step 2:
+             * Request the SecureShare SSO token.
+             *
+             * Original HTTP method: POST
+             * Original URL:
+             * /midofficetools-webapp/rs/brkoauth/samlSCORERefToken.rs
+             *
+             * Original JSON request:
+             * {
+             *     "channel": "SCORE",
+             *     "forceToRefresh": true
+             * }
+             */
+            async function requestSecureShareToken() {
+                const tokenUrl =
+                    '/midofficetools-webapp/rs/brkoauth/' +
+                    'samlSCORERefToken.rs';
+
+                const requestBody = {
+                    channel: 'SCORE',
+                    forceToRefresh: true
+                };
+
+                try {
+                    const tokenResponse = await fetch(
+                        tokenUrl,
+                        {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            cache: 'no-store',
+                            headers: {
+                                'Accept': 'application/json',
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(requestBody)
+                        }
+                    );
+
+                    if (!tokenResponse.ok) {
+                        const errorText =
+                            await readResponseText(tokenResponse);
+
+                        throw new Error(
+                            'samlSCORERefToken FAILED. HTTP status: ' +
+                            tokenResponse.status +
+                            '. Response: ' +
+                            errorText
+                        );
+                    }
+
+                    const response = await tokenResponse.json();
+
+                    if (!response) {
+                        throw new Error(
+                            'The token service returned an empty response.'
+                        );
+                    }
+
+                    if (!response.access_token) {
+                        throw new Error(
+                            'The token service response does not contain ' +
+                            'access_token.'
+                        );
+                    }
+
+                    const tokenInput =
+                        document.getElementById('token');
+
+                    const secureShareForm =
+                        document.getElementById('cdmForm');
+
+                    if (!tokenInput) {
+                        throw new Error(
+                            'Cannot find the hidden input with id="token".'
+                        );
+                    }
+
+                    if (!secureShareForm) {
+                        throw new Error(
+                            'Cannot find the form with id="cdmForm".'
+                        );
+                    }
+
+                    /*
+                     * Step 3:
+                     * Put the received access token in SessionToken.
+                     */
+                    tokenInput.value = response.access_token;
+
+                    /*
+                     * Step 4:
+                     * Submit the plain HTML form using POST.
+                     *
+                     * Target URL comes from:
+                     * clientAccountNavBean.getSecureShareCloudBaseAPIUrl()
+                     */
+                    secureShareForm.submit();
+
+                } catch (error) {
+                    handleSecureShareError(
+                        'samlSCORERefToken FAILED',
+                        error
+                    );
+                }
+            }
+
+            /**
+             * Safely reads an error response.
+             */
+            async function readResponseText(response) {
+                try {
+                    return await response.text();
+                } catch (readError) {
+                    return 'Unable to read the error response.';
+                }
+            }
+
+            /**
+             * Logs the error and redirects to the original login URL.
+             */
+            function handleSecureShareError(message, error) {
+                console.error(message, error);
+
+                const statusMessage =
+                    document.getElementById('statusMessage');
+
+                if (statusMessage) {
+                    statusMessage.textContent =
+                        'Unable to open SecureShare. Redirecting to login...';
+                }
+
+                window.location.href =
+                    '/midofficetools-webapp/login/Login.jsf';
+            }
+
+            //]]>
+        </script>
+
+    </h:body>
+
+    </html>
+
+</f:view>
+
+Exact flow preserved
+
+1. SecureShare.xhtml loads.
+
+
+2. <h:body onload="cmdPost();"> invokes cmdPost().
+
+
+3. Browser sends:
+
+
+
+GET /midofficetools-webapp/rs/brkoauth/keepSessionAlive.rs
+
+4. Only after that succeeds, the browser sends:
+
+
+
+POST /midofficetools-webapp/rs/brkoauth/samlSCORERefToken.rs
+Content-Type: application/json
+
+{
+  "channel": "SCORE",
+  "forceToRefresh": true
+}
+
+5. The response value access_token is placed into:
+
+
+
+<input name="SessionToken" />
+
+6. The plain HTML form submits using POST to:
+
+
+
+clientAccountNavBean.getSecureShareCloudBaseAPIUrl()
+
+7. If either REST call fails, it redirects to the original URL:
+
+
+
+/midofficetools-webapp/login/Login.jsf
+
+No PrimeFaces 15-specific change is required for this page. Also remove the old jQuery import completely:
+
+<script src="../resources/js/jquery/jquery-1.12.4.js"></script>
+
+Do not keep both the old jQuery script and this native JavaScript script, because that could execute the SecureShare flow twice.
