@@ -1,0 +1,427 @@
+Worked for 15s
+
+Both errors are XHTML/IDE validation issues.
+
+1. The IDE treats the plain HTML form’s action as a fixed URL and does not understand the JSF expression.
+
+
+2. The CDATA closing marker exists without a correctly recognized opening marker.
+
+
+
+Use a data-* attribute for the SecureShare URL and use a proper XML CDATA block.
+
+Error 1: Cannot resolve anchor
+
+Replace this:
+
+<form id="cdmForm"
+      action="#{
+          clientAccountNavBean.secureShareCloudBaseAPI
+      }"
+      method="post">
+
+with:
+
+<form id="cdmForm"
+      method="post"
+      data-secure-share-url="#{
+          clientAccountNavBean.secureShareCloudBaseAPI
+      }">
+
+Then, immediately before submitting the form, set the action in JavaScript:
+
+const secureShareUrl =
+    cdmForm.dataset.secureShareUrl;
+
+cdmForm.action = secureShareUrl;
+cdmForm.submit();
+
+This removes the IDE’s “Cannot resolve anchor” warning while still evaluating the backing-bean value on the server.
+
+Error 2: Invalid ]]> sequence
+
+Use this exact script structure:
+
+<script type="text/javascript"><![CDATA[
+
+    // JavaScript code goes here.
+
+]]></script>
+
+Do not use a closing marker by itself:
+
+//]]>
+
+unless there is a correctly formed opening marker.
+
+Corrected complete SecureShare.xhtml
+
+<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:h="jakarta.faces.html"
+      xmlns:f="jakarta.faces.core">
+
+<h:head>
+
+    <title>SecureShare</title>
+
+    <meta charset="UTF-8"/>
+
+</h:head>
+
+<h:body>
+
+    <div id="statusMessage">
+        Loading SecureShare...
+    </div>
+
+    <!--
+        Keep this as a plain HTML form because it posts to
+        the external SecureShare application.
+    -->
+    <form id="cdmForm"
+          method="post"
+          data-secure-share-url="#{
+              clientAccountNavBean.secureShareCloudBaseAPI
+          }">
+
+        <input id="channel"
+               name="channel"
+               type="hidden"
+               value="SCORE"/>
+
+        <input id="token"
+               name="SessionToken"
+               type="hidden"
+               value=""/>
+
+        <input id="buzLine"
+               name="buzLine"
+               type="hidden"
+               value="ITRADE"/>
+
+    </form>
+
+    <script type="text/javascript"><![CDATA[
+
+        const applicationContext =
+            "#{facesContext.externalContext.requestContextPath}";
+
+        const tokenUrl =
+            applicationContext
+            + "/rs/brkauth/samlSCORERefToken.rs";
+
+        const keepAliveUrl =
+            applicationContext
+            + "/rs/brkauth/keepSessionAlive.rs";
+
+        const loginUrl =
+            applicationContext
+            + "/login/Login.jsf";
+
+        document.addEventListener(
+            "DOMContentLoaded",
+            function () {
+                openSecureShare();
+            }
+        );
+
+        async function openSecureShare() {
+
+            setStatusMessage(
+                "Preparing SecureShare session..."
+            );
+
+            /*
+             * Start keepalive without blocking the token request.
+             */
+            sendKeepAlive();
+
+            try {
+
+                const requestUrl =
+                    new URL(
+                        tokenUrl,
+                        window.location.origin
+                    );
+
+                requestUrl.searchParams.set(
+                    "channel",
+                    "SCORE"
+                );
+
+                requestUrl.searchParams.set(
+                    "forceToRefresh",
+                    "true"
+                );
+
+                console.log(
+                    "Calling SecureShare token endpoint:",
+                    requestUrl.toString()
+                );
+
+                const response = await fetch(
+                    requestUrl.toString(),
+                    {
+                        method: "GET",
+                        credentials: "same-origin",
+                        cache: "no-store",
+                        headers: {
+                            "Accept": "application/json"
+                        }
+                    }
+                );
+
+                console.log(
+                    "Token API HTTP status:",
+                    response.status
+                );
+
+                if (response.status === 401
+                        || response.status === 403) {
+
+                    redirectToLogin();
+                    return;
+                }
+
+                if (!response.ok) {
+                    throw new Error(
+                        "Token API returned HTTP "
+                        + response.status
+                    );
+                }
+
+                const contentType =
+                    response.headers.get(
+                        "content-type"
+                    ) || "";
+
+                if (!contentType
+                        .toLowerCase()
+                        .includes("application/json")) {
+
+                    const responseBody =
+                        await response.text();
+
+                    console.error(
+                        "Expected JSON but received:",
+                        contentType,
+                        responseBody.substring(0, 500)
+                    );
+
+                    if (looksLikeLoginPage(responseBody)) {
+                        redirectToLogin();
+                        return;
+                    }
+
+                    throw new Error(
+                        "Token endpoint returned "
+                        + "a non-JSON response"
+                    );
+                }
+
+                const tokenResponse =
+                    await response.json();
+
+                if (!tokenResponse
+                        || !tokenResponse.access_token) {
+
+                    throw new Error(
+                        "Token response does not contain "
+                        + "access_token"
+                    );
+                }
+
+                const tokenInput =
+                    document.getElementById("token");
+
+                const cdmForm =
+                    document.getElementById("cdmForm");
+
+                if (!tokenInput) {
+                    throw new Error(
+                        "SessionToken input was not found"
+                    );
+                }
+
+                if (!cdmForm) {
+                    throw new Error(
+                        "cdmForm was not found"
+                    );
+                }
+
+                /*
+                 * Read the JSF-generated URL from data-*.
+                 */
+                const secureShareUrl =
+                    cdmForm.dataset.secureShareUrl;
+
+                if (!secureShareUrl) {
+                    throw new Error(
+                        "SecureShare destination URL is empty"
+                    );
+                }
+
+                tokenInput.value =
+                    tokenResponse.access_token;
+
+                /*
+                 * Set the form action only after the URL
+                 * and token have been validated.
+                 */
+                cdmForm.action =
+                    secureShareUrl;
+
+                setStatusMessage(
+                    "Opening SecureShare..."
+                );
+
+                cdmForm.submit();
+
+            } catch (error) {
+
+                console.error(
+                    "SecureShare initialization failed:",
+                    error
+                );
+
+                setStatusMessage(
+                    "Unable to open SecureShare. "
+                    + "Please try again or contact support."
+                );
+            }
+        }
+
+        async function sendKeepAlive() {
+
+            try {
+
+                const response = await fetch(
+                    keepAliveUrl,
+                    {
+                        method: "POST",
+                        credentials: "same-origin",
+                        cache: "no-store",
+                        keepalive: true,
+                        headers: {
+                            "Accept": "application/json",
+                            "Content-Type":
+                                "application/json"
+                        },
+                        body: JSON.stringify({
+                            channel: "SCORE"
+                        })
+                    }
+                );
+
+                console.log(
+                    "Keepalive HTTP status:",
+                    response.status
+                );
+
+                if (response.status === 401
+                        || response.status === 403) {
+
+                    redirectToLogin();
+                    return;
+                }
+
+                if (!response.ok) {
+                    console.warn(
+                        "Keepalive returned HTTP "
+                        + response.status
+                    );
+                }
+
+            } catch (error) {
+
+                /*
+                 * Keepalive failure should not automatically
+                 * hide the actual token-request result.
+                 */
+                console.warn(
+                    "Keepalive request failed:",
+                    error
+                );
+            }
+        }
+
+        function redirectToLogin() {
+
+            window.location.replace(
+                loginUrl
+            );
+        }
+
+        function looksLikeLoginPage(responseBody) {
+
+            if (!responseBody) {
+                return false;
+            }
+
+            const normalizedBody =
+                responseBody.toLowerCase();
+
+            return normalizedBody.includes("<html")
+                && (
+                    normalizedBody.includes("login")
+                    || normalizedBody.includes("signin")
+                    || normalizedBody.includes("sign in")
+                );
+        }
+
+        function setStatusMessage(message) {
+
+            const statusMessage =
+                document.getElementById(
+                    "statusMessage"
+                );
+
+            if (statusMessage) {
+                statusMessage.textContent = message;
+            }
+        }
+
+    ]]></script>
+
+</h:body>
+
+</html>
+
+Important verification
+
+View the rendered page source and confirm this:
+
+data-secure-share-url="#{
+    clientAccountNavBean.secureShareCloudBaseAPI
+}"
+
+became a real URL, for example:
+
+data-secure-share-url="https://secure-share.example.com/login"
+
+It must not remain as:
+
+data-secure-share-url="#{clientAccountNavBean.secureShareCloudBaseAPI}"
+
+If it remains unevaluated, confirm the Spring bean is registered as:
+
+@Component("clientAccountNavBean")
+
+and that it has:
+
+public String getSecureShareCloudBaseAPI()
+
+With these changes:
+
+The form action warning is removed.
+
+The CDATA error is removed.
+
+No jQuery is required.
+
+The backing-bean SecureShare URL is still used.
+
+The session token is still posted through the plain HTML form.
