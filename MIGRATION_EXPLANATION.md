@@ -131,3 +131,23 @@ That combination avoids sending the whole application to Jersey and preserves th
 Interview-ready explanation
 
 > During the Java 21, Spring 6, JSF 4, and Jersey 3 migration, the legacy .rs servlet mapping stopped routing the REST request to its Jersey handler, so the breakpoint was not reached and the request returned 404. We added a dedicated /rs/* Jersey mapping to avoid catching the JSF home page, and changed the Jersey class path to /brkoauth so /rs was defined only once and the external URL stayed unchanged. After routing worked, a separate 500 was exposed: the token request created a second, broad Spring context that eagerly initialized JSF controllers. Those controllers accessed FacesContext, which does not exist during a Jersey request. We made unrelated UI beans lazy, removed duplicate controller registration, and identified a backend-only Spring context as the stronger long-term approach. React hydration errors on the external SecureShare page were tracked separately.
+
+
+Worked for 11s
+
+They can affect when a screen’s bean is created, but targeted lazy loading should not stop the screen from working.
+
+With an eager bean, Spring creates it when the application context starts. With a lazy bean, Spring waits until something asks for it. When a JSF screen first uses that bean, Spring creates it then, and the screen can use it.
+
+The practical differences are:
+
+The first visit to that screen might take a little longer.
+
+An initialization error may appear when the screen is first opened, instead of during application startup.
+
+If the bean starts a background job or performs required work at startup, lazy loading could delay that work.
+
+
+So the fix in the screenshots should apply only to UI beans that the Jersey token request does not need—not to every bean. Keep backend services needed by the token flow available normally.
+
+Also, lazy loading only delays bean creation; it does not make FacesContext safe to use from a Jersey request. The stronger fix is to remove JSF request access from bean constructors and field initializers, and use it only during JSF processing. Then verify that each affected screen initializes its bean correctly on first use.
